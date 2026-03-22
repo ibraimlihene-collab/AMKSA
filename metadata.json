@@ -1,0 +1,5 @@
+{
+  "name": "Sketch Platformer",
+  "description": "A 2D platformer game based on a hand-drawn sketch featuring precise jumps, deadly floors, and a button-activated moving platform.",
+  "requestFramePermissions": []
+}
