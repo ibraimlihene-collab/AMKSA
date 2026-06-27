@@ -16,6 +16,170 @@ const ROCK_FRICTION = 200;
 const CANVAS_WIDTH = 1024;
 const CANVAS_HEIGHT = 576;
 
+class AudioEngine {
+  ctx: AudioContext | null = null;
+  isMusicPlaying = false;
+  platformOsc: OscillatorNode | null = null;
+  platformGain: GainNode | null = null;
+
+  init() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  playJump() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.1);
+  }
+
+  playRockImpact() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.1);
+  }
+
+  playWolfAttack() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(80, this.ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(40, this.ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.3);
+  }
+
+  playThrow() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(200, this.ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.1);
+  }
+
+  setPlatformMoving(isMoving: boolean) {
+    if (!this.ctx) return;
+    if (isMoving && !this.platformOsc) {
+      this.platformOsc = this.ctx.createOscillator();
+      this.platformGain = this.ctx.createGain();
+      this.platformOsc.type = 'triangle';
+      this.platformOsc.frequency.value = 60;
+      this.platformGain.gain.value = 0.05;
+      this.platformOsc.connect(this.platformGain);
+      this.platformGain.connect(this.ctx.destination);
+      this.platformOsc.start();
+    } else if (!isMoving && this.platformOsc) {
+      this.platformOsc.stop();
+      this.platformOsc.disconnect();
+      this.platformGain?.disconnect();
+      this.platformOsc = null;
+      this.platformGain = null;
+    }
+  }
+
+  playStep() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.05);
+    gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.05);
+  }
+
+  startMusic() {
+    if (!this.ctx || this.isMusicPlaying) return;
+    this.isMusicPlaying = true;
+    
+    // 8-bit adventure style music loop
+    const bassNotes = [130.81, 130.81, 98.00, 116.54]; // C3, C3, G2, A#2
+    const melodyNotes = [
+      261.63, 392.00, 349.23, 392.00, // C4, G4, F4, G4
+      261.63, 392.00, 466.16, 392.00, // C4, G4, A#4, G4
+    ];
+
+    let beat = 0;
+
+    const playBeat = () => {
+      if (!this.isMusicPlaying || !this.ctx) return;
+      const time = this.ctx.currentTime;
+
+      // Play Bass (every 4 beats)
+      if (beat % 4 === 0) {
+        const bassOsc = this.ctx.createOscillator();
+        const bassGain = this.ctx.createGain();
+        bassOsc.type = 'triangle';
+        bassOsc.frequency.value = bassNotes[(beat / 4) % bassNotes.length];
+        bassGain.gain.setValueAtTime(0.04, time);
+        bassGain.gain.linearRampToValueAtTime(0.03, time + 0.8);
+        bassGain.gain.exponentialRampToValueAtTime(0.001, time + 1.0);
+        bassOsc.connect(bassGain);
+        bassGain.connect(this.ctx.destination);
+        bassOsc.start(time);
+        bassOsc.stop(time + 1.0);
+      }
+
+      // Play Melody (every beat)
+      const melOsc = this.ctx.createOscillator();
+      const melGain = this.ctx.createGain();
+      melOsc.type = 'square';
+      melOsc.frequency.value = melodyNotes[beat % melodyNotes.length];
+      melGain.gain.setValueAtTime(0.015, time);
+      melGain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+      melOsc.connect(melGain);
+      melGain.connect(this.ctx.destination);
+      melOsc.start(time);
+      melOsc.stop(time + 0.2);
+
+      beat++;
+      setTimeout(playBeat, 250); // 240 BPM (4 beats per second)
+    };
+
+    playBeat();
+  }
+}
+
+const audio = new AudioEngine();
+
 interface PlayerState {
   x: number;
   y: number;
@@ -26,6 +190,7 @@ interface PlayerState {
   isGrounded: boolean;
   facingRight: boolean;
   animTimer: number;
+  stepTimer?: number;
   state: 'idle' | 'run' | 'jump' | 'fall';
   
   // Jump Mechanics
@@ -506,6 +671,7 @@ export default function App() {
         const absoluteAimAngle = player.facingRight ? player.relativeAimAngle : Math.PI - player.relativeAimAngle;
         const power = 600 + player.chargeLevel * 800; // Fluctuates between 600 and 1400
         
+        audio.playThrow();
         rocks.push({
           id: Date.now(),
           x: player.x + (player.facingRight ? 4 : -4), // Spawn closer to center to avoid getting stuck in walls
@@ -525,6 +691,7 @@ export default function App() {
         const absoluteAimAngle = player.facingRight ? 0 : Math.PI; // Straight throw
         const power = 1400; // Faster straight throw
         
+        audio.playThrow();
         rocks.push({
           id: Date.now(),
           x: player.x + (player.facingRight ? 4 : -4), // Spawn closer to center to avoid getting stuck in walls
@@ -567,6 +734,7 @@ export default function App() {
       }
 
       if (player.jumpBuffer > 0 && player.coyoteTime > 0) {
+        audio.playJump();
         player.vy = -JUMP_FORCE;
         player.isGrounded = false;
         player.jumpBuffer = 0;
@@ -700,6 +868,7 @@ export default function App() {
               r.y + r.radius > plat.y && r.y - r.radius < plat.y + plat.h) {
             if (rPrevY + r.radius <= plat.y && r.vy > 0) {
               r.y = plat.y - r.radius;
+              if (r.vy > 100) audio.playRockImpact();
               r.vy *= -ROCK_BOUNCE;
               if (Math.abs(r.vx) > 0) {
                 r.vx -= Math.sign(r.vx) * ROCK_FRICTION * dt;
@@ -708,12 +877,17 @@ export default function App() {
               if (Math.abs(r.vy) < 50) r.vy = 0;
             } else if (rPrevY - r.radius >= plat.y + plat.h && r.vy < 0) {
               r.y = plat.y + plat.h + r.radius;
+              if (r.vy < -100) audio.playRockImpact();
               r.vy *= -ROCK_BOUNCE;
             } else {
               if (rPrevX + r.radius <= plat.x && r.vx > 0) {
-                r.x = plat.x - r.radius; r.vx *= -ROCK_BOUNCE;
+                r.x = plat.x - r.radius; 
+                if (r.vx > 100) audio.playRockImpact();
+                r.vx *= -ROCK_BOUNCE;
               } else if (rPrevX - r.radius >= plat.x + plat.w && r.vx < 0) {
-                r.x = plat.x + plat.w + r.radius; r.vx *= -ROCK_BOUNCE;
+                r.x = plat.x + plat.w + r.radius; 
+                if (r.vx < -100) audio.playRockImpact();
+                r.vx *= -ROCK_BOUNCE;
               }
             }
           }
@@ -753,6 +927,7 @@ export default function App() {
           }
         }
         if (rockHitHangingBox) {
+          audio.playRockImpact();
           // Bounce the rock off the box instead of removing it
           r.vy = -50;
           r.vx = r.vx > 0 ? -40 : 40;
@@ -764,6 +939,8 @@ export default function App() {
         movingPlatform.active = true;
         movingPlatform.vx = -movingPlatform.speed; // Start moving towards player
       }
+
+      audio.setPlatformMoving(movingPlatform.active);
 
       if (movingPlatform.active) {
         movingPlatform.x += movingPlatform.vx * dt;
@@ -830,6 +1007,7 @@ export default function App() {
           } else if (playerInSight) {
             if (playerInAttackRange) {
               wolf.state = 'attack';
+              audio.playWolfAttack();
               wolf.attackTimer = 0;
               wolf.vx = 0;
               wolf.facingRight = player.x > wolf.x;
@@ -868,6 +1046,7 @@ export default function App() {
                 } else {
                   wolf.damageTimer = 0.2;
                 }
+                audio.playRockImpact();
                 // Bounce the rock instead of consuming it
                 r.vy = -50;
                 r.vx = r.vx > 0 ? -40 : 40;
@@ -898,7 +1077,7 @@ export default function App() {
         boxes = initialBoxes.map(b => ({ ...b })); // Reset boxes
         hangingBoxes = initialHangingBoxes.map(b => ({ ...b })); // Reset hanging boxes
         wolves = initialWolves.map(w => ({ ...w })); // Reset wolves
-        
+
         setDeathCount(c => c + 1);
       }
 
@@ -909,9 +1088,16 @@ export default function App() {
         player.state = 'run';
         const speedRatio = Math.abs(player.vx) / MAX_SPEED;
         player.animTimer += dt * 15 * speedRatio; 
+        
+        player.stepTimer = (player.stepTimer || 0) + dt * speedRatio;
+        if (player.stepTimer > 0.2) {
+          audio.playStep();
+          player.stepTimer = 0;
+        }
       } else {
         player.state = 'idle';
         player.animTimer += dt;
+        player.stepTimer = 0;
       }
 
       // --- Draw ---
@@ -1174,7 +1360,6 @@ export default function App() {
 
       ctx.restore();
 
-      // UI
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'left';
@@ -1225,6 +1410,7 @@ export default function App() {
               <li><strong className="text-purple-400">الزر والمنصة:</strong> التقط حجراً (<kbd className="bg-slate-800 px-1 rounded">E</kbd>)، ثم اضغط باستمرار على (<kbd className="bg-slate-800 px-1 rounded">R</kbd>) للتصويب (استخدم أسهم أعلى/أسفل لتغيير الزاوية). <span className="text-red-400 font-bold">انتبه: قوة الرمية تتغير باستمرار!</span> أفلت الزر في اللحظة المناسبة لرمي الحجر بالمسار المطلوب لضرب الزر في الجهة المقابلة.</li>
               <li><strong className="text-blue-400">الرمي السريع:</strong> اضغط (<kbd className="bg-slate-800 px-1 rounded">F</kbd>) لرمي الحجر بشكل مستقيم ومباشر. يمكنك حمل حتى 4 أحجار.</li>
               <li><strong className="text-orange-400">العقبات الأخيرة:</strong> ستواجه ذئاباً وصندوقاً يمكنك دفعه لتجاوز الجدار. بعد ذلك، ستجد جداراً عالياً جداً وصندوقاً معلقاً. اضرب الصندوق المعلق لإسقاطه، وادفعه لتتمكن من القفز، ثم اقضِ على الذئب الأخير!</li>
+              <li><strong className="text-yellow-400">تحذير النسر:</strong> النسر يلاحقك باستمرار من الخلف! سرعته تزداد مع مرور الوقت. لا تتوقف أبداً ولا تتراجع للخلف، الأمان الوحيد هو الركض للأمام بأقصى سرعة!</li>
             </ul>
             <div className="mt-4 pt-4 border-t border-slate-800 flex gap-4 text-sm text-slate-500 justify-center flex-wrap">
               <span>التحكم: الأسهم أو A/D للحركة</span>
@@ -1240,7 +1426,11 @@ export default function App() {
           </div>
 
           <button 
-            onClick={() => setGameStarted(true)}
+            onClick={() => {
+              setGameStarted(true);
+              audio.init();
+              audio.startMusic();
+            }}
             className="w-full py-4 bg-red-600 hover:bg-red-500 text-white transition-all rounded-full font-bold text-xl shadow-[0_0_40px_rgba(220,38,38,0.2)] hover:shadow-[0_0_60px_rgba(220,38,38,0.4)]"
           >
             ابدأ التحدي
