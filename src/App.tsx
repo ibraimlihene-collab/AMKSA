@@ -521,7 +521,7 @@ export default function App() {
   };
   useEffect(() => {
     const pause = () => { if (screen === 'playing') { held.current.clear(); persist(); setScreen('paused'); A.pause(); } };
-    const visibility = () => { if (document.hidden) { held.current.clear(); if (screen === 'intro' || screen === 'puzzle') A.pause(); pause(); } };
+    const visibility = () => { if (document.hidden) { held.current.clear(); if (screen === 'intro' || screen === 'puzzle') A.pause(); pause(); } else if (screen === 'intro' || screen === 'puzzle') A.resume(); };
     const escape = (e: KeyboardEvent) => { if (e.code === 'Escape') { if (screen === 'playing') pause(); else if (screen === 'paused') { setScreen('playing'); A.resume(); } } };
     window.addEventListener('blur', pause); document.addEventListener('visibilitychange', visibility); window.addEventListener('keydown', escape); const pagehide = () => persist(); window.addEventListener('pagehide', pagehide);
     if (screen === 'title' || screen === 'complete' || screen === 'reset') { A.stop(); A.pause(); }

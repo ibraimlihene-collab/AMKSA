@@ -20,8 +20,9 @@ Do not tag or publish a commercial release from source inspection alone.
 ## Assets and provenance
 
 The current game draws its graphics with Canvas and uses a system font stack.
-Its music and effects use Web Audio synthesis. These sounds are placeholders.
-No commissioned artwork, licensed music recordings, or verified regional instrument performance enters this change.
+Background music uses the recording supplied by the project owner. Sound effects use Web Audio synthesis.
+See `src/assets/audio/README.md` for the recording source and digest.
+The supplied recording has no independently verified license or regional performance attribution in this repository.
 The existing repository license and original source ownership still require confirmation before commercial distribution.
 Template dependencies remain in the lockfile until a separate dependency and license audit confirms removal is safe.
 

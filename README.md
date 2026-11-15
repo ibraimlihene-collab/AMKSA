@@ -60,7 +60,7 @@ Chapter selection permits revisits to unlocked chapters.
 - `src/game/input.ts`: independent action bindings.
 - `src/game/i18n.ts`: selected-language interface and puzzle copy.
 - `src/game/ui.tsx`: accessible settings and puzzle controls.
-- `src/game/audio.ts`: procedural placeholder audio with separate music and effects levels.
+- `src/game/audio.ts`: the supplied looping Atlas recording with separate music and synthesized effects levels.
 - `src/App.tsx`: orchestration, collision loop, and Canvas rendering. Further extraction remains possible.
 
 Each puzzle award has a stable ID. Each sheep and enemy has a stable ID.
