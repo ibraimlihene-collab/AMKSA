@@ -1,5 +1,10 @@
 export type Language = 'ar' | 'en' | 'fr';
 const copy = {
+  brand: ['أمكسا', 'AMKSA', 'AMKSA'],
+  journeyName: ['رحلة الراعي', 'The Shepherd’s Journey', 'Le voyage du berger'],
+  region: ['الأطلس المتوسط · المغرب', 'Middle Atlas · Morocco', 'Moyen Atlas · Maroc'],
+  landscape: ['على دروب الأطلس', 'Along the Atlas trails', 'Sur les sentiers de l’Atlas'],
+  journeyType: ['مغامرة ألغاز بيئية', 'An environmental puzzle adventure', 'Une aventure d’énigmes dans la nature'],
   title: ['أمكسا — رحلة الراعي', 'Amksa — The Shepherd’s Journey', 'Amksa — Le voyage du berger'],
   subtitle: ['اتبع الأثر، افهم الآلة، وأعد القطيع إلى المأوى.', 'Follow the trail, understand the mechanism, bring the flock to safety.', 'Suivez les traces, comprenez les mécanismes et abritez le troupeau.'],
   language: ['اللغة', 'Language', 'Langue'], start: ['ابدأ الرحلة', 'Start journey', 'Commencer'], resume: ['استئناف', 'Continue', 'Continuer'],

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Player, Rock, Box, Hanging, PType, Plat, MP, Lever, Door, Plate, Bridge, Elevator, Coin, Check, Portal, Sheep, EType, Enemy, Proj, Part, Haz, Threat, Pal, WD } from './game/types';
 import { A } from './game/audio';
+import { drawSky, drawMountains, cedar, drawPlatform, drawSheep } from './game/art';
 import { PUZZLES, WORLDS, MOODS, type LogicPuzzle } from './game/content';
 import { FixedClock, bridgeSolid, strikeEnemy, activate, award, clearLine, damageEnemy, downwardContact, ending, launch, movePlatform, projectileStep, trajectory } from './game/rules';
 import { createPlayer, createWorld, resetResources, snapshot, type Session } from './game/world';
@@ -57,27 +58,6 @@ const cl = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 // ============================================================
 //  RENDER — atmospheric, hand-drawn feel, multi-layered
 // ============================================================
-function drawSky(ctx: CanvasRenderingContext2D, cx: number, pal: Pal, id: string) {
-  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, pal.skyTop); g.addColorStop(1, pal.skyBot);
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // sun/moon glow
-  if (id === 'pasture' || id === 'gorge') { const sx = (id === 'gorge' ? 760 : 820) - cx * 0.02; const r = id === 'gorge' ? 70 : 55; const gg = ctx.createRadialGradient(sx, 130, 8, sx, 130, r); gg.addColorStop(0, 'rgba(255,235,180,0.5)'); gg.addColorStop(1, 'rgba(255,235,180,0)'); ctx.fillStyle = gg; ctx.fillRect(sx - r, 60, r * 2, r * 2); }
-  if (id === 'snow') { const gg = ctx.createRadialGradient(820 - cx * 0.02, 110, 8, 820 - cx * 0.02, 110, 60); gg.addColorStop(0, 'rgba(220,235,250,0.45)'); gg.addColorStop(1, 'rgba(220,235,250,0)'); ctx.fillStyle = gg; ctx.fillRect(760, 50, 120, 120); }
-}
-function drawMountains(ctx: CanvasRenderingContext2D, cx: number, pal: Pal) {
-  ctx.fillStyle = pal.far; ctx.beginPath();
-  for (let i = 0; i < 13; i++) { const x = i * 300 - (cx * 0.12) % 300; ctx.moveTo(x, H); ctx.lineTo(x + 150, H - 210 + Math.sin(i * 1.3) * 45); ctx.lineTo(x + 300, H); }
-  ctx.fill();
-  ctx.fillStyle = pal.mid; ctx.beginPath();
-  for (let i = 0; i < 15; i++) { const x = i * 240 - (cx * 0.26) % 240; ctx.moveTo(x, H); ctx.lineTo(x + 120, H - 140 + Math.cos(i * 1.7) * 35); ctx.lineTo(x + 240, H); }
-  ctx.fill();
-}
-// cedar tree silhouette (atmospheric, layered canopy). baseY = world-space top of the platform it stands on.
-function cedar(ctx: CanvasRenderingContext2D, x: number, baseY: number, hgt: number, dark: string) {
-  ctx.fillStyle = '#2a1a10'; ctx.fillRect(x - 5, baseY - hgt * 0.32, 10, hgt * 0.32);
-  ctx.fillStyle = dark;
-  for (let t = 0; t < 4; t++) { const ty = baseY - hgt * 0.32 - t * (hgt * 0.18); const tw = (hgt * 0.5) * (1 - t * 0.2); ctx.beginPath(); ctx.moveTo(x - tw, ty); ctx.lineTo(x, ty - hgt * 0.24); ctx.lineTo(x + tw, ty); ctx.closePath(); ctx.fill(); }
-}
 // find the top surface y at a given world x among platforms (for anchoring trees to ground)
 const topAt = (plats: Plat[], x: number, width = 0): number | null => {
   let best: number | null = null;
@@ -89,34 +69,6 @@ function drawFog(ctx: CanvasRenderingContext2D, cx: number, cy: number, pal: Pal
   ctx.fillStyle = pal.fog; ctx.globalAlpha = 0.12 * level;
   for (let i = 0; i < 5; i++) { const x = (cx * 0.4 + i * 260) % (W + 260) - 130; const y = H - 60 - i * 18 + Math.sin(Date.now() / 2000 + i) * 10; ctx.beginPath(); ctx.ellipse(x, y - cy * 0.3, 160, 30, 0, 0, Math.PI * 2); ctx.fill(); }
   ctx.globalAlpha = 1;
-}
-function drawPlatform(ctx: CanvasRenderingContext2D, p: Plat, pal: Pal, id: string) {
-  let body = pal.ground, top = pal.groundTop;
-  if (p.type === 'pillar') { body = '#2e1f14'; top = id === 'cedar' ? '#4d8060' : id === 'gorge' ? '#a8603a' : pal.groundTop; }
-  if (p.type === 'ice') { body = '#143a56'; top = '#d4eaf2'; }
-  if (p.type === 'plateau') { body = '#33271c'; top = pal.groundTop; }
-  if (p.type === 'break') { body = '#5a3a20'; top = '#c8a060'; }
-  if (p.type === 'goal') { body = '#243a2c'; top = '#5aaa6a'; }
-  let ox = 0; if (p.type === 'break' && p.broken && (p.breakT ?? 0) > 0) ox = Math.sin(Date.now() / 28) * 3;
-  ctx.save(); ctx.translate(ox, 0);
-  // shadow under platform
-  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(p.x + 4, p.y + 4, p.w, p.h);
-  ctx.fillStyle = body; ctx.fillRect(p.x, p.y, p.w, p.h);
-  ctx.fillStyle = top; ctx.fillRect(p.x, p.y, p.w, 9);
-  // grass tufts on ground tops (cedar/pasture)
-  if ((p.type === 'ground' || p.type === 'plateau') && (id === 'cedar' || id === 'pasture')) {
-    ctx.fillStyle = id === 'cedar' ? '#5d9068' : '#8fb850';
-    for (let i = 6; i < p.w; i += 14) { ctx.fillRect(p.x + i, p.y - 3, 2, 6); ctx.fillRect(p.x + i + 3, p.y - 5, 2, 8); ctx.fillRect(p.x + i + 6, p.y - 2, 2, 5); }
-  }
-  // snow caps
-  if (p.type === 'ice') { ctx.fillStyle = '#fff'; for (let i = 4; i < p.w; i += 20) { ctx.fillRect(p.x + i, p.y - 2, 12, 3); } }
-  // texture cracks
-  ctx.fillStyle = 'rgba(0,0,0,0.14)';
-  for (let i = 0; i < p.w; i += 24) ctx.fillRect(p.x + i, p.y + 9, 2, Math.min(p.h, 50));
-  if (p.type === 'pillar') { ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(p.x + 5, p.y, 4, p.h); ctx.fillRect(p.x + p.w - 9, p.y, 4, p.h); }
-  if (p.label) { ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(p.label, p.x + p.w / 2, p.y - 8); }
-  if (p.type === 'goal') { ctx.fillStyle = '#5aaa6a'; ctx.fillRect(p.x + p.w / 2 - 2, p.y - 60, 4, 60); ctx.fillStyle = '#3a8a4a'; ctx.beginPath(); ctx.moveTo(p.x + p.w / 2 + 2, p.y - 60); ctx.lineTo(p.x + p.w / 2 + 26, p.y - 48); ctx.lineTo(p.x + p.w / 2 + 2, p.y - 36); ctx.fill(); }
-  ctx.restore();
 }
 function drawHazard(ctx: CanvasRenderingContext2D, h: Haz, t: number) {
   if (h.type === 'water') {
@@ -219,26 +171,6 @@ function drawCheck(ctx: CanvasRenderingContext2D, c: Check) {
   [[-9, -8, 18], [-7, -20, 14], [-5, -30, 9]].forEach(([dx, dy, s]) => { ctx.fillStyle = c.on ? '#b8924c' : '#5a5a5a'; ctx.fillRect(c.x + dx, c.y + dy, s, 9); });
   if (c.on) { ctx.fillStyle = 'rgba(200,164,92,0.22)'; ctx.beginPath(); ctx.arc(c.x, c.y - 34, 13 + Math.sin(Date.now() / 300) * 3, 0, Math.PI * 2); ctx.fill(); }
 }
-function drawSheep(ctx: CanvasRenderingContext2D, s: Sheep) {
-  ctx.save(); ctx.translate(Math.round(s.x), Math.round(s.y)); const by = Math.sin(s.bob) * 1.2;
-  // shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0, 4, 13, 3, 0, 0, Math.PI * 2); ctx.fill();
-  // fluffy wool body
-  ctx.fillStyle = '#f0ece4'; ctx.beginPath();
-  for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; ctx.arc(Math.cos(a) * 9, by - 9 + Math.sin(a) * 7, 6, 0, Math.PI * 2); }
-  ctx.fill();
-  ctx.fillStyle = '#ddd8cc'; ctx.beginPath(); ctx.arc(-5, by - 11, 5, 0, Math.PI * 2); ctx.arc(5, by - 12, 4, 0, Math.PI * 2); ctx.fill();
-  // dark head
-  ctx.fillStyle = '#3a2a22'; ctx.beginPath(); ctx.ellipse(12, by - 9, 7, 8, 0, 0, Math.PI * 2); ctx.fill();
-  // ears
-  ctx.fillStyle = '#2a1a12'; ctx.beginPath(); ctx.ellipse(11, by - 14, 2, 4, 0.3, 0, Math.PI * 2); ctx.fill();
-  // eye
-  ctx.fillStyle = '#e8d8c0'; ctx.fillRect(14, by - 11, 2, 2);
-  // legs
-  ctx.fillStyle = '#3a2a22'; ctx.fillRect(-7, -2, 3, 6); ctx.fillRect(5, -2, 3, 6);
-  ctx.restore();
-}
-
 // ===== Animals — detailed, realistic silhouettes, clearly visible =====
 function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
   ctx.save(); ctx.translate(Math.round(e.x + e.w / 2), Math.round(e.y + e.h / 2));
@@ -419,21 +351,21 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, solids: { x: numbe
   ctx.fillStyle = '#241208'; ctx.fillRect(legL - 2, -2, 5, 3); ctx.fillRect(legR - 2, -2, 5, 3);
   ctx.save(); ctx.translate(0, -13 + bodyY); ctx.rotate(tilt);
   // burnous (selham) — earthy brown, draped with depth
-  const cloak = p.hitFlash > 0 ? '#dc2626' : '#c5a16a';
+  const cloak = p.hitFlash > 0 ? '#dc2626' : '#ead8ac';
   // back drape (slightly darker, behind)
-  ctx.fillStyle = p.hitFlash > 0 ? '#b91c1c' : '#523824';
+  ctx.fillStyle = p.hitFlash > 0 ? '#b91c1c' : '#718477';
   ctx.beginPath(); ctx.moveTo(-12, -21); ctx.lineTo(12, -21); ctx.lineTo(16, 11); ctx.lineTo(-16, 11); ctx.closePath(); ctx.fill();
   // front cloak
   ctx.fillStyle = cloak;
   ctx.beginPath(); ctx.moveTo(-11, -21); ctx.lineTo(11, -21); ctx.lineTo(14, 9); ctx.lineTo(-14, 9); ctx.closePath(); ctx.fill();
   // Woven belt stripe
-  ctx.fillStyle = '#c8a45c'; ctx.fillRect(-12, 2, 24, 3);
+  ctx.fillStyle = '#8c6541'; ctx.fillRect(-12, 2, 24, 3);
   ctx.fillStyle = '#e0c074'; ctx.fillRect(-12, 2, 24, 1);
   // cloak folds
-  ctx.strokeStyle = '#4a2e1c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-6, -19); ctx.lineTo(-8, 8); ctx.moveTo(6, -19); ctx.lineTo(8, 8); ctx.stroke();
+  ctx.strokeStyle = '#a89168'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-6, -19); ctx.lineTo(-8, 8); ctx.moveTo(6, -19); ctx.lineTo(8, 8); ctx.stroke();
   // hood (deeper, with inner shadow)
-  ctx.fillStyle = '#4a2e1c'; ctx.beginPath(); ctx.arc(0, -24, 12, Math.PI, 0); ctx.fill();
-  ctx.fillStyle = '#3a2414'; ctx.beginPath(); ctx.arc(0, -24, 9, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#d6c394'; ctx.beginPath(); ctx.arc(0, -24, 12, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#82795c'; ctx.beginPath(); ctx.arc(0, -24, 9, Math.PI, 0); ctx.fill();
   // face (warm tan) — clearer
   ctx.fillStyle = '#c8946a'; ctx.beginPath(); ctx.arc(1, -25, 7, 0, Math.PI * 2); ctx.fill();
   // cheek shading
@@ -444,11 +376,14 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, solids: { x: numbe
   ctx.fillStyle = '#1a0e08'; ctx.fillRect(3, -26, 2, 2.5); ctx.fillRect(-3, -26, 2, 2.5);
   // eyebrow
   ctx.fillStyle = '#1a0e08'; ctx.fillRect(2, -28, 4, 1); ctx.fillRect(-4, -28, 4, 1);
+  // A woven shoulder wrap gives the shepherd a readable silhouette at gameplay size.
+  ctx.fillStyle = '#48776b'; ctx.beginPath(); ctx.moveTo(-12, -20); ctx.lineTo(9, -16); ctx.lineTo(11, -10); ctx.lineTo(-13, -15); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#9eb29a'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-10, -18); ctx.lineTo(8, -14); ctx.stroke();
   // carved shepherd staff (with crook)
   ctx.strokeStyle = '#9a7a44'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(10, -16); ctx.lineTo(18, 0); ctx.stroke();
-  ctx.strokeStyle = '#6a4a28'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10, -16); ctx.lineTo(18, 0); ctx.stroke();
-  ctx.strokeStyle = '#9a7a44'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(10, -18, 3, Math.PI * 0.3, Math.PI * 1.4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(17, -27); ctx.lineTo(18, 12); ctx.stroke();
+  ctx.strokeStyle = '#6a4a28'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(17, -27); ctx.lineTo(18, 12); ctx.stroke();
+  ctx.strokeStyle = '#9a7a44'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(20, -28, 3, Math.PI * 0.3, Math.PI * 1.4); ctx.stroke();
   // rock in hand OR punch fist
   if (p.state === 'punch') { ctx.fillStyle = '#c8946a'; ctx.beginPath(); ctx.arc(18, -8, 6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#a8784a'; ctx.fillRect(15, -11, 4, 2); }
   else if (p.rockN > 0) { ctx.fillStyle = '#7a7060'; ctx.beginPath(); ctx.arc(13, -8, 5, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#9a9080'; ctx.beginPath(); ctx.arc(12, -9, 2, 0, Math.PI * 2); ctx.fill(); }
@@ -975,16 +910,27 @@ export default function App() {
   }, [screen, wi, bindings, lang]);
 
   const settings = <Settings lang={lang} music={musicVolume} sfx={sfxVolume} motion={reducedMotion} large={large} challenge={challenge} bindings={bindings} onMusic={setMusicVolume} onSfx={setSfxVolume} onMotion={setReducedMotion} onLarge={setLarge} onChallenge={setChallenge} onBindings={setBindings} />;
-  const shell = (content: React.ReactNode) => <main className={`app-shell ${large ? 'large-text' : ''} ${reducedMotion ? 'reduced-motion' : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>{notice && <p className="notice" role="status">{t(notice)}</p>}{content}</main>;
+  const shell = (content: React.ReactNode) => <main className={`app-shell screen-${screen} ${large ? 'large-text' : ''} ${reducedMotion ? 'reduced-motion' : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>{notice && <p className="notice" role="status">{t(notice)}</p>}{content}</main>;
   const exportSave = () => { const url = URL.createObjectURL(new Blob([JSON.stringify(saveRef.current, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'amksa-save.json'; a.click(); URL.revokeObjectURL(url); };
   const saveTools = <div className="save-tools"><button onClick={exportSave}>{t('export')}</button><label className="file-button">{t('import')}<input type="file" accept="application/json,.json" onChange={async e => { const file = e.target.files?.[0]; if (!file || file.size > 100000) { setNotice('importFailed'); return; } const value = parseSave(await file.text()); if (!value) { setNotice('importFailed'); return; } if (!writeSave(browserStorage, value)) { setNotice('saveFailed'); return; } saveRef.current = value; setHasSave(true); setNotice('imported'); }} /></label></div>;
   if (screen === 'title') return shell(<section className="panel title-panel" data-testid="title-screen">
-    <p className="eyebrow">AMKSA · 0.4</p><h1>{t('title')}</h1><p className="lead">{t('subtitle')}</p>
-    <div className="language-picker" aria-label={t('language')}>{(['ar', 'en', 'fr'] as Lang[]).map(l => <button key={l} lang={l} aria-pressed={l === lang} onClick={() => setLang(l)}>{({ ar: 'العربية', en: 'English', fr: 'Français' })[l]}</button>)}</div>
-    <div className="actions"><button className="primary" data-testid="new-game" onClick={() => start(false)}>{t('start')}</button>{hasSave && <button data-testid="continue" onClick={() => start(true)}>{t('resume')}</button>}</div>
-    {confirmNew && <div className="confirmation" role="alertdialog" aria-label={t('erase')}><p>{t('erase')}</p><button onClick={() => setConfirmNew(false)}>{t('cancel')}</button><button data-testid="confirm-new" onClick={() => start(false)}>{t('confirm')}</button></div>}
-    {hasSave && <><button onClick={() => setChapters(v => !v)}>{t('chapters')}</button>{chapters && <div className="actions">{WORLDS.map((f, i) => i <= saveRef.current.unlocked && <button key={i} onClick={() => start(true, i)}>{t(f().id)}</button>)}</div>}</>}
-    {settings}<p>{t('policy')}</p>{saveTools}
+    <header className="title-nav">
+      <span className="wordmark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="m4 29 13-19 8 11 4-6 8 14H4Z"/><path d="m13 16 4 6 4-6M9 34h23"/></svg><span>AMKSA<small>{t('region')}</small></span></span>
+      <div className="language-picker" aria-label={t('language')}>{(['ar', 'en', 'fr'] as Lang[]).map(l => <button key={l} lang={l} aria-pressed={l === lang} onClick={() => setLang(l)}>{({ ar: 'العربية', en: 'English', fr: 'Français' })[l]}</button>)}</div>
+    </header>
+    <div className="hero-layout">
+      <div className="vista-caption"><span className="compass" aria-hidden="true">✧</span><span>{t('landscape')}<small>{t('journeyType')}</small></span></div>
+      <div className="hero-copy" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+        <p className="eyebrow"><span />{t('journeyType')}</p>
+        <h1 className="hero-name">{t('brand')}</h1><h2>{t('journeyName')}</h2><p className="lead">{t('subtitle')}</p>
+        <div className="actions hero-actions"><button className="primary" data-testid="new-game" onClick={() => start(false)}>{t('start')}<span aria-hidden="true">{lang === 'ar' ? '←' : '→'}</span></button>{hasSave && <button data-testid="continue" onClick={() => start(true)}>{t('resume')}</button>}</div>
+        {confirmNew && <div className="confirmation" role="alertdialog" aria-label={t('erase')}><p>{t('erase')}</p><button onClick={() => setConfirmNew(false)}>{t('cancel')}</button><button data-testid="confirm-new" onClick={() => start(false)}>{t('confirm')}</button></div>}
+        {hasSave && <><button onClick={() => setChapters(v => !v)}>{t('chapters')}</button>{chapters && <div className="actions">{WORLDS.map((f, i) => i <= saveRef.current.unlocked && <button key={i} onClick={() => start(true, i)}>{t(f().id)}</button>)}</div>}</>}
+        {settings}
+      </div>
+    </div>
+    <ol className="journey-route" aria-label={t('landscape')}>{(['cedar', 'pasture', 'gorge', 'snow']).map((id, i) => <li key={id}><span aria-hidden="true">0{i + 1}</span><span>{t(id)}</span><i aria-hidden="true" /></li>)}</ol>
+    <footer className="title-footer"><p>{t('policy')}</p>{saveTools}</footer>
   </section>);
   if (screen === 'intro') return shell(<section className="panel" data-testid="intro-screen"><p className="eyebrow">AMKSA</p><h1>{t('title')}</h1><p className="story">{STORY[storyIdx][lang]}</p><progress value={storyIdx + 1} max={STORY.length} aria-label={t('progress')} /><div className="actions"><button onClick={() => setScreen('transition')} data-testid="skip-intro">{t('skip')}</button><button className="primary" onClick={() => storyIdx < STORY.length - 1 ? setStoryIdx(i => i + 1) : setScreen('transition')}>{t('next')}</button></div></section>);
   if (screen === 'transition') return shell(<section className="panel"><h1>{t(MOODS[wi])}</h1><p>{wi + 1} / 4</p></section>);
@@ -998,7 +944,7 @@ export default function App() {
   const touch = (action: Action) => <button key={action} aria-label={t(action)} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); held.current.add(action); pendingActions.current.add(action); }} onPointerUp={() => held.current.delete(action)} onPointerCancel={() => held.current.delete(action)} onLostPointerCapture={() => held.current.delete(action)}>{t(action)}</button>;
   const def = S.current?.world.def;
   return shell(<div className="game-layout" data-testid={screen === 'paused' ? 'paused-screen' : 'playing-screen'}>
-    <header className="hud"><strong>{t(MOODS[wi])}</strong><span>{t('health')}: {hud.hp}/3</span><span>{t('sheep')}: {hud.sheep}/{def?.goalS}</span><span>{t('puzzles')}: {hud.solved}/{def?.goalP}</span><span>{t('coins')}: {hud.coins}</span><span>{t('deaths')}: {hud.deaths}</span><button data-testid="pause-game" onClick={() => { persist(); held.current.clear(); A.pause(); setScreen('paused'); }}>{t('pause')}</button></header>
+    <header className="hud"><strong><small>AMKSA · 0{wi + 1}</small>{t(MOODS[wi])}</strong><span className="health-stat"><small>{t('health')}</small><b role="img" aria-label={`${t('health')}: ${hud.hp}/3`}>{Array.from({ length: 3 }, (_, i) => <i key={i} className={i < hud.hp ? 'heart active' : 'heart'} aria-hidden="true">♥</i>)}</b></span><span><small>{t('sheep')}</small><b dir="ltr">{hud.sheep}<em> / {def?.goalS}</em></b></span><span><small>{t('puzzles')}</small><b dir="ltr">{hud.solved}<em> / {def?.goalP}</em></b></span><span><small>{t('coins')}</small><b>{hud.coins}</b></span><span className="deaths-stat"><small>{t('deaths')}</small><b>{hud.deaths}</b></span><button data-testid="pause-game" onClick={() => { persist(); held.current.clear(); A.pause(); setScreen('paused'); }}>{t('pause')}</button></header>
     <div className="game-frame"><canvas ref={ref} width={W} height={H} aria-label={t('title')} data-testid="game-canvas" />{screen === 'paused' && <div className="pause-overlay"><section className="panel" role="dialog" aria-modal="true" aria-label={t('paused')}><h1>{t('paused')}</h1><div className="actions"><button className="primary" onClick={() => { A.resume(); setScreen('playing'); }}>{t('resume')}</button><button onClick={resetRoom}>{t('reset')}</button><button onClick={() => { persist(); setTotalCoins(saveRef.current.coins); setScreen('title'); }}>{t('menu')}</button></div>{settings}<p>{t('policy')}</p></section></div>}</div>
     <p className="controls-help">{t('controls')} {t('rockCache')}</p>
     {screen === 'playing' && <div className="touch-controls" data-testid="touch-controls">{(['left', 'right', 'jump', 'interact', 'aim', 'up', 'down', 'quick', 'dash', 'punch'] as Action[]).map(touch)}</div>}
