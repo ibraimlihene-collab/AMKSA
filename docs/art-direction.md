@@ -27,5 +27,14 @@ Commercial distribution still requires the ownership and license checks in the r
 - Treat the illustration as a fictional Atlas landscape. It is not a verified geographical or clothing reference.
 - Preserve readable language controls, keyboard focus, reduced motion, pause, and mobile controls.
 
-The design changes presentation only. It does not change physics, puzzle rules, saves, or audio playback.
+The initial design revision changes presentation only.
+The river correction also replaces three narrow water hazards with four continuous basins between existing banks.
+Their spans are 380–950, 1210–1720, 2046–2540, and 2960–3480 world pixels.
+Their initial surface is y = 500. Their fixed bottom is y = 690.
+The existing flood cap remains y = 420. Room recovery restores the initial surface.
+The water painter clips all effects to the damage rectangle and keeps its depth gradient visible.
+River haze uses sparse horizontal ellipses behind terrain and actors.
+The correction uses original Canvas instructions and palette values. It adds no external artwork.
+Terrain collisions, puzzle rules, stable IDs, saves, and audio playback remain unchanged.
+Full traversal and flood timing still require player acceptance.
 Human art approval, cultural review, and physical-device acceptance remain open.

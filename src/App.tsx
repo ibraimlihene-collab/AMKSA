@@ -72,36 +72,30 @@ function drawFog(ctx: CanvasRenderingContext2D, cx: number, cy: number, pal: Pal
 }
 function drawHazard(ctx: CanvasRenderingContext2D, h: Haz, t: number) {
   if (h.type === 'water') {
-    // Atlas river water — deep teal with depth gradient, layered waves, foam, reflections
-    const x = h.x, y = h.y, wW = h.w, hH = h.h;
-    // depth gradient: lighter teal at top, darker deep below
-    const g = ctx.createLinearGradient(0, y, 0, y + hH);
-    g.addColorStop(0, '#1f6f78'); g.addColorStop(0.4, '#16565e'); g.addColorStop(1, '#0c353c');
-    ctx.fillStyle = g; ctx.fillRect(x, y, wW, hH);
-    // back wave layer (slower, darker)
-    ctx.fillStyle = 'rgba(26,90,98,0.22)';
-    ctx.beginPath(); ctx.moveTo(x, y);
-    for (let i = 0; i <= wW; i += 6) { ctx.lineTo(x + i, y + Math.sin(t / 160 + i * 0.05) * 3 - 2); }
-    ctx.lineTo(x + wW, y + hH); ctx.lineTo(x, y + hH); ctx.closePath(); ctx.fill();
-    // front wave layer (faster, lighter teal)
-    ctx.fillStyle = 'rgba(42,128,136,0.22)';
-    ctx.beginPath(); ctx.moveTo(x, y + 3);
-    for (let i = 0; i <= wW; i += 6) { ctx.lineTo(x + i, y + 3 + Math.sin(t / 110 + i * 0.08) * 3); }
-    ctx.lineTo(x + wW, y + hH); ctx.lineTo(x, y + hH); ctx.closePath(); ctx.fill();
-    // surface highlight line (shimmering)
-    ctx.strokeStyle = 'rgba(180,240,235,0.5)'; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let i = 0; i <= wW; i += 4) { const yy = y + 2 + Math.sin(t / 110 + i * 0.08) * 3; if (i === 0) ctx.moveTo(x + i, yy); else ctx.lineTo(x + i, yy); }
-    ctx.stroke();
-    // foam band at the very top edge
-    ctx.fillStyle = 'rgba(220,250,245,0.7)';
-    for (let i = 0; i <= wW; i += 14) { const yy = y - 1 + Math.sin(t / 110 + i * 0.08) * 3; ctx.fillRect(x + i + (Math.sin(t / 300 + i) * 3), yy, 6, 2); }
-    // moving reflection streaks
-    ctx.strokeStyle = 'rgba(200,245,240,0.18)'; ctx.lineWidth = 1;
-    for (let r = 0; r < 4; r++) { const ry = y + 10 + r * 9; const off = Math.sin(t / 600 + r) * 14; ctx.beginPath(); ctx.ellipse(x + wW / 2 + off, ry, wW * 0.3, 2, 0, 0, Math.PI * 2); ctx.stroke(); }
-    // sparkle dots
-    ctx.fillStyle = 'rgba(220,250,245,0.6)';
-    for (let i = 0; i < 5; i++) { const sx = x + ((t / 30 + i * 37) % wW); const sy = y + 6 + Math.sin(t / 200 + i) * 3; ctx.fillRect(sx, sy, 2, 1); }
+    const { x, y, w, h: depth } = h;
+    ctx.save();
+    // The same rectangle drives damage. No wave, foam, or reflection can escape it.
+    ctx.beginPath(); ctx.rect(x, y, w, depth); ctx.clip();
+    const g = ctx.createLinearGradient(0, y, 0, y + depth);
+    g.addColorStop(0, '#52b6bd'); g.addColorStop(0.28, '#267e8a'); g.addColorStop(1, '#123e50');
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, depth);
+    // Keep the depth gradient visible. Ripples are strokes, not opaque body fills.
+    ctx.fillStyle = '#c8eee5'; ctx.fillRect(x, y, w, 1.5);
+    for (let row = 0; row < 5; row++) {
+      ctx.strokeStyle = row === 0 ? '#d8f3e6aa' : '#bce8df40'; ctx.lineWidth = row === 0 ? 1.5 : 1;
+      for (let i = -50; i < w; i += 72) {
+        const rx = x + i + (t / (32 + row * 8)) % 72;
+        const ry = y + 5 + row * 13;
+        ctx.beginPath(); ctx.moveTo(rx, ry);
+        ctx.quadraticCurveTo(rx + 12, ry + Math.sin(t / 350 + i + row) * 2, rx + 30, ry); ctx.stroke();
+      }
+    }
+    // Small foam fragments show the current without obscuring the surface boundary.
+    ctx.fillStyle = '#e0f5e7b0';
+    for (let i = 0; i < w; i += 49) {
+      ctx.fillRect(x + (i + t / 45) % w, y + 2 + Math.sin(i) * 0.5, 8, 1);
+    }
+    ctx.restore();
   } else {
     ctx.fillStyle = h.type === 'ice' ? '#bce0ee' : '#b8c0c8';
     const n = Math.floor(h.w / 16);
@@ -809,7 +803,7 @@ export default function App() {
       if (player.invinc > 0) player.invinc -= dt; if (player.hitFlash > 0) player.hitFlash -= dt;
 
       // particles
-      pT -= dt; if (pT <= 0) { pT = 0.07; const kk = def.pType; if (kk === 'snow') world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -18 + Math.random() * 8, vy: 40 + Math.random() * 30, life: 6, max: 6, size: 2 + Math.random() * 2, color: pal.particle, kind: 'snow' }); if (kk === 'leaf') world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -25 + Math.random() * 25, vy: 25 + Math.random() * 15, life: 7, max: 7, size: 3 + Math.random() * 2, color: pal.particle, kind: 'leaf' }); if (kk === 'mist') world.particles.push({ x: cx + Math.random() * W, y: cy + H * 0.7 + Math.random() * 120, vx: 30 + Math.random() * 20, vy: 0, life: 5, max: 5, size: 30 + Math.random() * 20, color: pal.particle, kind: 'mist' }); }
+      pT -= dt; if (pT <= 0) { const kk = def.pType; pT = kk === 'mist' ? 0.45 : 0.07; if (kk === 'snow') world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -18 + Math.random() * 8, vy: 40 + Math.random() * 30, life: 6, max: 6, size: 2 + Math.random() * 2, color: pal.particle, kind: 'snow' }); if (kk === 'leaf') world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -25 + Math.random() * 25, vy: 25 + Math.random() * 15, life: 7, max: 7, size: 3 + Math.random() * 2, color: pal.particle, kind: 'leaf' }); if (kk === 'mist') world.particles.push({ x: cx + Math.random() * W, y: cy + H * 0.7 + Math.random() * 120, vx: 30 + Math.random() * 20, vy: 0, life: 5, max: 5, size: 30 + Math.random() * 20, color: pal.particle, kind: 'mist' }); }
       for (let i = world.particles.length - 1; i >= 0; i--) { const p = world.particles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; if (p.kind === 'leaf') p.vx += Math.sin(p.life * 4) * 18 * dt; if (p.life <= 0) world.particles.splice(i, 1); }
 
       // anim
@@ -828,6 +822,13 @@ export default function App() {
       ctx.save(); ctx.translate(-cx, -cy);
       // cedar trees anchored to actual platforms (no floating)
       if (def.id === 'cedar') { [380, 760, 1450, 2200, 2900, 3600, 4200].forEach((tx, i) => { const base = topAt(world.platforms, tx, 12); if (base !== null) cedar(ctx, tx, base, 170 + (i % 2) * 35, i % 2 ? '#214a36' : '#2c5a3e'); }); }
+      // River haze stays behind the banks, actors, and water surface.
+      if (!motionRef.current) for (const p of world.particles) {
+        if (p.kind !== 'mist') continue;
+        ctx.globalAlpha = Math.sin(Math.PI * cl(p.life / p.max, 0, 1)) * 0.035;
+        ctx.fillStyle = p.color; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.size * 2.8, p.size * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
       for (const h of world.hazards) drawHazard(ctx, h, time);
       for (const p of world.platforms) { if (p.type === 'break' && p.broken && (p.breakT ?? 0) <= 0) continue; drawPlatform(ctx, p, pal, def.id); }
       for (const m of mp) { ctx.fillStyle = pal.accent; ctx.fillRect(Math.round(m.x), Math.round(m.y), m.w, m.h); ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(Math.round(m.x), Math.round(m.y), m.w, 4); }
@@ -861,7 +862,7 @@ export default function App() {
       for (const p of world.projectiles) drawProj(ctx, p);
       if (def.portal.w > 0) drawPortal(ctx, def.portal, time, pal, world.opened);
       drawPlayer(ctx, { ...player, x: (player.prevX ?? player.x) + (player.x - (player.prevX ?? player.x)) * alpha, y: (player.prevY ?? player.y) + (player.y - (player.prevY ?? player.y)) * alpha }, solids);
-      for (const p of motionRef.current ? [] : world.particles) { const a = Math.max(0, p.life / p.max); ctx.globalAlpha = a * (p.kind === 'mist' ? 0.2 : 1); ctx.fillStyle = p.color; if (p.kind === 'mist') { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); } else ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size); }
+      for (const p of motionRef.current ? [] : world.particles) { if (p.kind === 'mist') continue; ctx.globalAlpha = Math.max(0, p.life / p.max); ctx.fillStyle = p.color; ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size); }
       ctx.globalAlpha = 1; ctx.restore();
       // Avalanche is visible, telegraphed, and escapable; checkpoints act as shelters.
       if (def.id === 'snow' && world.threat.phase === 'warning') {

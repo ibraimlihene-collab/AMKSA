@@ -150,7 +150,7 @@ function wGorge(): WD {
   ];
   P.push({ x: 1590, y: -450, w: 300, h: 540, type: 'wall' });
   return { id: 'gorge', tif: '', name: 'مضيق أم الربيع', sub: 'العالم الثالث', width: 4420, mood: 'gorge',
-    pal: { skyTop: '#281612', skyBot: '#7a3a26', far: '#5a281e', mid: '#8a4a30', near: '#a86038', ground: '#3a1a12', groundTop: '#c8703a', accent: '#e8a050', fog: '#c88858', particle: '#d8a878' },
+    pal: { skyTop: '#527c87', skyBot: '#c4d7cb', far: '#577e80', mid: '#7c9990', near: '#42695b', ground: '#303f3d', groundTop: '#bac2a1', accent: '#e0bc72', fog: '#c5e0d9', particle: '#d6e9e0' },
     pType: 'mist', spawnX: 70, spawnY: GY - 48, threat: 'flood',
     platforms: P, mplatforms: [{ x: 2020, y: 350, w: 100, h: 16, sx: 2020, ex: 2110, vx: 80, axis: 'y', sy: 310, ey: 410 }, { x: 3020, y: 390, w: 100, h: 16, sx: 3020, ex: 3060, vx: 90, axis: 'x' }],
     bridges: [{ id: 0, x: 1630, y: 410, w: 220, h: 14, down: false, progress: 0 }], elevators: [],
@@ -168,7 +168,14 @@ function wGorge(): WD {
     enemies: [ mkE('snake', 1000, GY - 18, 960, 1200), mkE('snake', 1800, GY - 18, 1730, 2010), mkE('fox', 2680, GY - 32, 2560, 2950), mkE('boar', 3850, GY - 34, 3500, 4320) ],
     rocks: [{ id: 1, x: 200, y: GY - 28, vx: 0, vy: 0, r: 8 }, { id: 2, x: 960, y: GY - 28, vx: 0, vy: 0, r: 8 }, { id: 3, x: 2560, y: GY - 28, vx: 0, vy: 0, r: 8 }, { id: 4, x: 3500, y: GY - 28, vx: 0, vy: 0, r: 8 }],
     boxes: [{ x: 1420, y: 264, w: 56, h: 56, vx: 0, vy: 0 }, { x: 3204, y: 294, w: 56, h: 56, vx: 0, vy: 0 }], hanging: [{ x: 4180, y: 120, w: 56, h: 56, hit: false }, { x: 2660, y: 100, w: 56, h: 56, hit: false }],
-    hazards: [{ x: 1230, y: GY + 30, w: 100, h: 90, type: 'water' }, { x: 1640, y: GY + 30, w: 100, h: 90, type: 'water' }, { x: 2040, y: GY, w: 80, h: 50, type: 'water' }],
+    // Continuous basins occupy the gaps between banks. Existing pillars remain stepping stones.
+    // Every basin starts below the banks and has the same fixed bed at y = 690.
+    hazards: [
+      { x: 380, y: GY + 30, w: 570, h: 190, type: 'water' },
+      { x: 1210, y: GY + 30, w: 510, h: 190, type: 'water' },
+      { x: 2046, y: GY + 30, w: 494, h: 190, type: 'water' },
+      { x: 2960, y: GY + 30, w: 520, h: 190, type: 'water' }
+    ],
     checkpoints: [{ x: 950, y: GY, on: false }, { x: 2540, y: GY, on: false }],
     coins: [[180, 420], [680, 330], [1420, 280], [1770, 420], [2270, 280], [2560, 420], [4140, 420]].map(([x, y], i) => ({ x, y, got: false, bob: i * 0.6 })),
     sheep: [{ id: 'sheep-1000', x: 1000, y: 410, vx: 0, vy: 0, rescued: false, bob: 0 }, { id: 'sheep-2440', x: 2440, y: 350, vx: 0, vy: 0, rescued: false, bob: 1 }],

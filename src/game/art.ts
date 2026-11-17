@@ -64,13 +64,13 @@ export function cedar(ctx: CanvasRenderingContext2D, x: number, baseY: number, h
 
 export function drawPlatform(ctx: CanvasRenderingContext2D, p: Plat, pal: Pal, id: string) {
   const ice = p.type === 'ice', fragile = p.type === 'break';
-  const top = ice ? '#e2edf0' : fragile ? '#c1a576' : id === 'gorge' ? '#c68e5c' : pal.groundTop;
+  const top = ice ? '#e2edf0' : fragile ? '#c1a576' : pal.groundTop;
   ctx.save();
   if (fragile && p.broken) ctx.translate(Math.sin(Date.now() / 28) * 3, 0);
   ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
   const rock = ctx.createLinearGradient(p.x, p.y, p.x + p.w, p.y + Math.min(p.h, 350));
-  rock.addColorStop(0, ice ? '#567e8b' : id === 'gorge' ? '#82523d' : '#67624b');
-  rock.addColorStop(.35, ice ? '#305264' : '#444938'); rock.addColorStop(1, pal.ground);
+  rock.addColorStop(0, ice ? '#567e8b' : id === 'gorge' ? '#8b9a91' : '#67624b');
+  rock.addColorStop(.35, ice ? '#305264' : id === 'gorge' ? '#596f65' : '#444938'); rock.addColorStop(1, pal.ground);
   ctx.fillStyle = rock; ctx.fillRect(p.x, p.y, p.w, p.h);
   for (let row = 0; row < Math.min(p.h, 720); row += 39) {
     const shift = Math.sin(p.x + row * 3) * 12;
@@ -89,8 +89,8 @@ export function drawPlatform(ctx: CanvasRenderingContext2D, p: Plat, pal: Pal, i
   ctx.fillStyle = top; ctx.fillRect(p.x, p.y, p.w, ice ? 7 : 5);
   ctx.fillStyle = '#ebdbae45'; ctx.fillRect(p.x, p.y, p.w, 1);
   ctx.restore();
-  if (!ice && !fragile && id !== 'gorge') {
-    ctx.save(); ctx.strokeStyle = id === 'cedar' ? '#9eac72' : '#b1bc73'; ctx.lineWidth = 1;
+  if (!ice && !fragile && (id !== 'gorge' || p.w >= 200)) {
+    ctx.save(); ctx.strokeStyle = id === 'gorge' ? '#709375' : id === 'cedar' ? '#9eac72' : '#b1bc73'; ctx.lineWidth = 1;
     for (let i = 7; i < p.w - 5; i += 11) {
       const h = 3 + Math.sin(p.x + i * 7) * 2;
       ctx.beginPath(); ctx.moveTo(p.x + i - 2, p.y); ctx.lineTo(p.x + i - 4, p.y - h); ctx.moveTo(p.x + i, p.y); ctx.lineTo(p.x + i + 1, p.y - h - 2); ctx.stroke();
