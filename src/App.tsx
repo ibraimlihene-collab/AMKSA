@@ -1,14 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Player, Rock, Box, Hanging, PType, Plat, MP, Lever, Door, Plate, Bridge, Elevator, Coin, Check, Portal, Sheep, EType, Enemy, Proj, Part, Haz, Threat, Pal, WD } from './game/types';
-import { A } from './game/audio';
-import { drawSky, drawMountains, cedar, drawPlatform, drawSheep } from './game/art';
+import type { Player, Rock, Plat, Lever, Door, Bridge, Check, Portal, Enemy, Proj, Haz, Pal } from './game/types';
+import { A, type MusicState, type Surface } from './game/audio';
+import { drawSky, drawMountains, cedar, drawPlatform, drawSheep, drawDecor, drawSluice, drawFloater, drawBell, drawPlate, drawAnimalCue, drawShelterHint } from './game/art';
 import { PUZZLES, WORLDS, MOODS, type LogicPuzzle } from './game/content';
-import { FixedClock, bridgeSolid, strikeEnemy, activate, award, clearLine, damageEnemy, downwardContact, ending, launch, movePlatform, projectileStep, trajectory } from './game/rules';
-import { createPlayer, createWorld, resetResources, snapshot, type Session } from './game/world';
+import { FixedClock, bridgeSolid, strikeEnemy, activate, damageEnemy, downwardContact, ending, launch, movePlatform, projectileStep, trajectory } from './game/rules';
+import { createPlayer, createWorld, resetResources, snapshot, currentRoom, objective, type Session } from './game/world';
+import { PHYS, stepPlayer, playerRect } from './game/physics';
+import { updateAnimal, distract, scare, isHostile } from './game/animals';
+import { stepSheep } from './game/sheep';
+import { stepPlates, placeStone, toggleSluice, stepWater, stepCracks, stepTriggers, stepFlood, resetFlood, stepAvalanche, inShelter } from './game/mechanisms';
+import { drawPrologue, drawEnding } from './game/scenes';
 import { text } from './game/i18n';
-import { Settings, PuzzlePanel } from './game/ui';
+import { Settings, PuzzlePanel, HintPanel, type TouchSize } from './game/ui';
 import { canonicalCode, defaultBindings, type Action, type Bindings } from './game/input';
-import { browserStorage, emptySave, eraseSave, loadSave, writeSave, parseSave, type Save } from './game/save';
+import { browserStorage, emptySave, eraseSave, loadSave, writeSave, parseSave, loadSettings, writeSettings, type Save } from './game/save';
 
 
 // ============================================================
@@ -17,43 +22,19 @@ import { browserStorage, emptySave, eraseSave, loadSave, writeSave, parseSave, t
 //  Middle Atlas (Béni Mellal – Khénifra), Morocco.
 // ============================================================
 
-// ---- Physics ----
-const GRAVITY = 2100;
-const FALL_MUL = 2.0;
-const LOWJ_MUL = 2.0;
-const JUMP = 760;
-const MAXSPD = 300;
-const ACC = 1500;
-const FRIC_G = 1100;
-const FRIC_A = 360;
-const DASH_SPD = 700;
-const DASH_T = 0.15;
-const DASH_CD = 0.4;
-
 // Throw
 const ROCK_BOUNCE = 0.34;
 const ROCK_FRIC = 240;
-const T_MIN = 480, T_MAX = 1280;
 const CHARGE_SPD = 1.7;
 
-// Punch (when out of rocks)
-const PUNCH_RANGE = 56;
-const PUNCH_DMG = 1;
+// Defensive push. It is never required to progress.
 const PUNCH_CD = 0.45;
-const PUNCH_KNOCK = 260;
 
 const W = 1024, H = 576, MAXHP = 3, GY = 470;
 
-// ============================================================
-//  Audio
-// ============================================================
-type Mood = 'menu' | 'cedar' | 'pasture' | 'gorge' | 'snow';
-// ============================================================
-//  Logic Puzzles — real deduction, not just pressing buttons
-// ============================================================
 // ---- helpers ----
 const pR = (p: Player) => ({ x: p.x - p.w / 2, y: p.y - p.h, w: p.w, h: p.h });
-const hit = (a: any, b: any) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+const hit = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 const cl = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 // ============================================================
 //  RENDER — atmospheric, hand-drawn feel, multi-layered
@@ -114,8 +95,10 @@ function drawPortal(ctx: CanvasRenderingContext2D, p: Portal, t: number, pal: Pa
 }
 function drawLever(ctx: CanvasRenderingContext2D, l: Lever) {
   if (l.target) {
-    // unmistakable distant target: bright concentric disc connected to a hanging pin
-    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(l.x, l.y - 58); ctx.lineTo(l.x, l.y - 34); ctx.stroke();
+    // Unmistakable target: a bright disc. A hanging target shows its cord; a wall target shows its peg.
+    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2; ctx.beginPath();
+    if (l.face) { ctx.moveTo(l.x + 8, l.y - 22); ctx.lineTo(l.x + 20, l.y - 22); } else { ctx.moveTo(l.x, l.y - 160); ctx.lineTo(l.x, l.y - 34); }
+    ctx.stroke();
     ctx.fillStyle = l.on ? '#34d399' : '#d4a857'; ctx.beginPath(); ctx.arc(l.x, l.y - 22, 13, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#3a2414'; ctx.beginPath(); ctx.arc(l.x, l.y - 22, 8, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = l.on ? '#34d399' : '#f5d889'; ctx.beginPath(); ctx.arc(l.x, l.y - 22, 3, 0, Math.PI * 2); ctx.fill();
@@ -125,18 +108,14 @@ function drawLever(ctx: CanvasRenderingContext2D, l: Lever) {
   ctx.strokeStyle = l.on ? pal_accent : '#8a7a5a'; ctx.lineWidth = 5; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(l.x, l.y - 26); ctx.lineTo(l.x + (l.on ? 14 : -14), l.y - 36); ctx.stroke();
   ctx.fillStyle = l.on ? pal_accent : '#6a5a3a'; ctx.beginPath(); ctx.arc(l.x + (l.on ? 14 : -14), l.y - 36, 5, 0, Math.PI * 2); ctx.fill();
-  if (l.seq !== undefined) { ctx.fillStyle = '#f5e6c8'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(String(l.seq), l.x, l.y - 47); }
-  if (l.puzzleId !== undefined && !l.solved) { ctx.fillStyle = '#8ac0e0'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🧩', l.x, l.y - 54); }
+  if (l.puzzleId !== undefined && !l.solved) { ctx.fillStyle = '#8ac0e0'; ctx.beginPath(); ctx.arc(l.x, l.y - 52, 6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#12261e'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('?', l.x, l.y - 48); }
 }
 const pal_accent = '#d4a857';
-function drawPlate(ctx: CanvasRenderingContext2D, pl: Plate) {
-  ctx.fillStyle = '#3a2a1a'; ctx.fillRect(pl.x, pl.y, pl.w, 8);
-  ctx.fillStyle = pl.pressed ? '#34d399' : '#8a6a3a'; ctx.fillRect(pl.x + 2, pl.y + (pl.pressed ? 4 : 1), pl.w - 4, pl.pressed ? 4 : 7);
-  if (!pl.solved) { ctx.fillStyle = '#f5e6c8'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('▼ ⚖', pl.x + pl.w / 2, pl.y - 7); }
-}
 function drawBridge(ctx: CanvasRenderingContext2D, b: Bridge) {
   ctx.save();
   ctx.translate(b.x, b.y + b.h / 2);
+  // A right-hinged deck lowers to the left, so it mirrors the left-hinged drawing.
+  if (b.hinge === 'right') ctx.scale(-1, 1);
   ctx.rotate(-Math.PI / 2 * (1 - b.progress));
   // rope rails
   ctx.strokeStyle = '#3b2517'; ctx.lineWidth = 3;
@@ -171,7 +150,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
   if (!e.faceR) ctx.scale(-1, 1);
   if (e.state === 'dead') { ctx.globalAlpha = Math.max(0, e.deadT / 1.2); ctx.rotate(Math.PI); }
   const hurt = e.dmgT > 0;
-  const ls = (e.state === 'walk') ? Math.sin(Date.now() / 90) * 6 : 0;
+  const ls = e.vx !== 0 ? Math.sin(Date.now() / 90) * 6 : 0;
 
   // WOLF — long-bodied, visible, realistic
   if (e.type === 'wolf') {
@@ -310,7 +289,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
   // health bar
   if (e.hp > 0 && e.hp < e.maxHp) { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(e.x - 1, e.y - 9, e.w + 2, 4); ctx.fillStyle = '#ef4444'; ctx.fillRect(e.x, e.y - 8, (e.w * e.hp) / e.maxHp, 3); }
 }
-function drawProj(ctx: CanvasRenderingContext2D, p: Proj) { ctx.fillStyle = '#e0c060'; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.vy, p.vx)); ctx.fillRect(-p.r, -2, p.r * 2, 4); ctx.restore(); }
+function drawProj(ctx: CanvasRenderingContext2D, p: Proj) { ctx.fillStyle = '#8a8274'; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.vy, p.vx)); ctx.fillRect(-p.r, -2, p.r * 2, 4); ctx.restore(); }
 
 // Shepherd player — burnous, staff, detailed
 function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, solids: { x: number; y: number; w: number; h: number }[]) {
@@ -337,6 +316,8 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, solids: { x: numbe
   else if (p.state === 'fall') { legL = -4; legR = -8; tilt = 0.1; }
   else if (p.state === 'dash') { legL = -12; legR = -6; tilt = 0.2; }
   else if (p.state === 'punch') { legL = -4; legR = -2; tilt = 0.05; }
+  else if (p.state === 'push') { legL = Math.sin(t) * 6 - 4; legR = Math.sin(t + Math.PI) * 6 - 4; tilt = 0.22; }
+  else if (p.state === 'calm') { legL = -3; legR = 5; bodyY = 3; tilt = 0.18; }
   else { bodyY = Math.sin(t * 2) * 1; }
   // legs (trousers) + sandals
   ctx.strokeStyle = '#3a2616'; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
@@ -379,6 +360,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, solids: { x: numbe
   ctx.strokeStyle = '#6a4a28'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(17, -27); ctx.lineTo(18, 12); ctx.stroke();
   ctx.strokeStyle = '#9a7a44'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(20, -28, 3, Math.PI * 0.3, Math.PI * 1.4); ctx.stroke();
   // rock in hand OR punch fist
+  if (p.state === 'calm') { ctx.strokeStyle = '#c8946a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(6, -14); ctx.lineTo(19, -6); ctx.stroke(); }
   if (p.state === 'punch') { ctx.fillStyle = '#c8946a'; ctx.beginPath(); ctx.arc(18, -8, 6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#a8784a'; ctx.fillRect(15, -11, 4, 2); }
   else if (p.rockN > 0) { ctx.fillStyle = '#7a7060'; ctx.beginPath(); ctx.arc(13, -8, 5, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#9a9080'; ctx.beginPath(); ctx.arc(12, -9, 2, 0, Math.PI * 2); ctx.fill(); }
   ctx.restore(); ctx.restore();
@@ -388,17 +370,22 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, solids: { x: numbe
 // ============================================================
 type Screen = 'title' | 'intro' | 'transition' | 'playing' | 'complete' | 'reset' | 'puzzle' | 'paused';
 type Lang = 'ar' | 'en' | 'fr';
-// Tri-lingual story, sentence by sentence (shown together over the Atlas song)
-const STORY = [
-  { ar: 'عند الفجر، تركت العاصفة باب الحظيرة مفتوحاً. اختفى صوت الجرس بين الأشجار.', en: 'At dawn, the storm left the pen open. The bell faded among the trees.', fr: 'À l’aube, la tempête a laissé l’enclos ouvert. La cloche s’est tue parmi les arbres.' },
-  { ar: 'يتتبع الراعي الصوف وآثار الحوافر عبر الأرز والمرعى ومجرى الماء والممر الثلجي.', en: 'The shepherd follows wool and hoofprints through cedars, pasture, water and snow.', fr: 'Le berger suit la laine et les empreintes à travers la cédraie, le pâturage, l’eau et la neige.' },
-  { ar: 'افهم الآلات وافتح المسار. كل غنمة تنقذها تصل إلى المأوى، وستذكر النهاية ما أنقذته فعلاً.', en: 'Understand each mechanism and open the path. Rescued sheep reach shelter. The ending records your actual rescues.', fr: 'Comprenez les mécanismes et ouvrez le passage. Les moutons sauvés rejoignent l’abri. La fin reflète vos sauvetages.' },
-];
+type Cause = 'deathWater' | 'deathFall' | 'deathAnimal' | 'deathSnow' | 'deathSpike';
+const PROLOGUE = ['prologue1', 'prologue2', 'prologue3', 'prologue4'];
+const ACTIONS = Object.keys(defaultBindings) as Action[];
+const surfaceOf = (id: string, p: Plat | null | undefined): Surface => !p ? 'wood' : id === 'snow' || p.type === 'ice' || p.type === 'crack' ? 'snow' : p.type === 'ground' && (id === 'cedar' || id === 'pasture') ? 'dirt' : 'rock';
+
+/** One bell per main sheep: filled when that sheep is home. */
+function FlockBells({ lang, rooms }: { lang: Lang; rooms: Save['rooms'] }) {
+  return <ol className="flock-bells" aria-label={text(lang, 'sheep')}>{WORLDS.map(f => { const d = f(); return <li key={d.id}><span>{text(lang, d.id)}</span>{d.sheep.map(s => { const home = !!rooms[d.id]?.sheep.includes(s.id); return <i key={s.id} className={home ? 'home' : ''} role="img" aria-label={home ? '✓' : '○'}>🔔</i>; })}</li>; })}</ol>;
+}
 
 export default function App() {
   const ref = useRef<HTMLCanvasElement>(null);
+  const sceneRef = useRef<HTMLCanvasElement>(null);
+  const stored = useRef(loadSettings(browserStorage, ACTIONS));
   const [screen, setScreen] = useState<Screen>('title');
-  const [lang, setLang] = useState<Lang>('ar');
+  const [lang, setLang] = useState<Lang>(stored.current?.lang ?? 'ar');
   const [storyIdx, setStoryIdx] = useState(0);
   const [wi, setWi] = useState(0);
   const [deaths, setDeaths] = useState(0);
@@ -409,23 +396,31 @@ export default function App() {
   const S = useRef<Session | null>(null);
   const saveRef = useRef<Save>(emptySave());
   const [notice, setNotice] = useState('');
-  const [challenge, setChallenge] = useState(false);
+  const [challenge, setChallenge] = useState(stored.current?.challenge ?? false);
   const challengeRef = useRef(false);
   useEffect(() => { challengeRef.current = challenge; }, [challenge]);
-  const [hud, setHud] = useState({ hp: 3, coins: 0, sheep: 0, solved: 0, deaths: 0 });
-  const [musicVolume, setMusicVolume] = useState(0.4);
-  const [sfxVolume, setSfxVolume] = useState(0.6);
-  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [hud, setHud] = useState({ hp: 3, coins: 0, sheep: 0, solved: 0, deaths: 0, stones: 4, goal: '', threat: '' });
+  const [musicVolume, setMusicVolume] = useState(stored.current?.music ?? 0.4);
+  const [sfxVolume, setSfxVolume] = useState(stored.current?.sfx ?? 0.6);
+  const [reducedMotion, setReducedMotion] = useState(() => stored.current?.motion ?? window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const motionRef = useRef(reducedMotion);
+  const [shake, setShake] = useState(stored.current?.shake ?? true);
+  const shakeRef = useRef(shake); useEffect(() => { shakeRef.current = shake; }, [shake]);
+  const [touchSize, setTouchSize] = useState<TouchSize>(stored.current?.touchSize ?? 'medium');
+  const [touchOpacity, setTouchOpacity] = useState(stored.current?.touchOpacity ?? 0.9);
   const [confirmNew, setConfirmNew] = useState(false);
   const [chapters, setChapters] = useState(false);
-  const [large, setLarge] = useState(false);
-  const [bindings, setBindings] = useState<Bindings>({ ...defaultBindings });
+  const [large, setLarge] = useState(stored.current?.large ?? false);
+  const [bindings, setBindings] = useState<Bindings>(() => ({ ...defaultBindings, ...(stored.current?.bindings as Partial<Bindings> | undefined) }));
+  const [hintTier, setHintTier] = useState(0);
+  const [hintRoom, setHintRoom] = useState<[string, string, string] | null>(null);
+  const [endRescued, setEndRescued] = useState(0);
   const held = useRef<Set<Action>>(new Set());
   const pendingActions = useRef<Set<Action>>(new Set());
   const t = (key: string) => text(lang, key);
   useEffect(() => { motionRef.current = reducedMotion; }, [reducedMotion]);
   useEffect(() => { A.volume(musicVolume, sfxVolume); }, [musicVolume, sfxVolume, screen]);
+  useEffect(() => { writeSettings(browserStorage, { lang, music: musicVolume, sfx: sfxVolume, motion: reducedMotion, large, challenge, shake, touchSize, touchOpacity, bindings }); }, [lang, musicVolume, sfxVolume, reducedMotion, large, challenge, shake, touchSize, touchOpacity, bindings]);
   useEffect(() => { try { const loaded = loadSave(browserStorage); saveRef.current = loaded.data; setHasSave(Object.keys(loaded.data.rooms).length > 0 || loaded.data.coins > 0 || loaded.data.world > 0); if (loaded.recovered) setNotice('saveRecovered'); } catch { setNotice('saveFailed'); } }, []);
   useEffect(() => { document.documentElement.lang = lang; document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'; }, [lang]);
   const persist = (nextWorld = wi, complete = false) => {
@@ -444,29 +439,49 @@ export default function App() {
   const resetRoom = () => {
     const st = S.current; if (!st) return;
     resetResources(st.world); Object.assign(st.player, createPlayer(st.world.def.spawnX, st.world.def.spawnY));
-    st.world.threat = { kind: st.world.def.threat, timer: 0, level: 0, phase: 'calm', frontX: 0 };
-    st.world.hazards.forEach(h => { if (h.baseY !== undefined) { h.y = h.baseY; h.h = h.bottom - h.y; } });
+    if (st.world.threat.phase !== 'cleared') st.world.threat = { kind: st.world.def.threat, timer: 0, level: 0, phase: 'calm', frontX: 0 };
+    resetFlood(st.world);
     persist(); setScreen('playing'); A.resume();
   };
+  const revealHint = () => { const st = S.current; if (!st) return; st.world.hintTier = Math.min(3, st.world.hintTier + 1); setHintTier(st.world.hintTier); A.hint(); };
   useEffect(() => {
-    const pause = () => { if (screen === 'playing') { held.current.clear(); persist(); setScreen('paused'); A.pause(); } };
+    const pause = () => { if (screen === 'playing') { held.current.clear(); persist(); openPause(); } };
     const visibility = () => { if (document.hidden) { held.current.clear(); if (screen === 'intro' || screen === 'puzzle') A.pause(); pause(); } else if (screen === 'intro' || screen === 'puzzle') A.resume(); };
     const escape = (e: KeyboardEvent) => { if (e.code === 'Escape') { if (screen === 'playing') pause(); else if (screen === 'paused') { setScreen('playing'); A.resume(); } } };
     window.addEventListener('blur', pause); document.addEventListener('visibilitychange', visibility); window.addEventListener('keydown', escape); const pagehide = () => persist(); window.addEventListener('pagehide', pagehide);
-    if (screen === 'title' || screen === 'complete' || screen === 'reset') { A.stop(); A.pause(); }
+    if (screen === 'title' || screen === 'reset') { A.stop(); A.pause(); }
     return () => { window.removeEventListener('blur', pause); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('keydown', escape); window.removeEventListener('pagehide', pagehide); };
   }, [screen, wi]);
+  const openPause = () => {
+    const st = S.current; const r = st ? currentRoom(st.world, st.player.x) : null;
+    setHintRoom(r?.room.hints ?? null); setHintTier(st?.world.hintTier ?? 0); setScreen('paused'); A.pause();
+  };
   useEffect(() => () => { A.stop(); A.pause(); }, []);
   useEffect(() => { if (screen !== 'intro') return; A.init(); A.startSong(); return () => A.stopSong(); }, [screen]);
   useEffect(() => {
     if (screen !== 'transition') return;
     const timer = setTimeout(() => {
       const def = WORLDS[wi](), world = createWorld(wi, saveRef.current.rooms[def.id]);
-      S.current = { time: 0, world, player: createPlayer(world.def.spawnX, world.def.spawnY), camX: 0, camY: 0, camTX: 0, camTY: 0, deaths, totalCoins, wCoins: 0 };
+      S.current = { time: 0, world, player: createPlayer(world.def.spawnX, world.def.spawnY), camX: Math.max(0, world.def.spawnX - W / 2), camY: 0, camTX: 0, camTY: 0, deaths, totalCoins, wCoins: 0 };
       A.init(); A.music(MOODS[wi]); setScreen('playing');
     }, 700);
     return () => clearTimeout(timer);
   }, [screen, wi]);
+  // Illustrated prologue and ending scenes.
+  useEffect(() => {
+    if ((screen !== 'intro' && screen !== 'complete') || !sceneRef.current) return;
+    const ctx = sceneRef.current.getContext('2d'); if (!ctx) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3); sceneRef.current.width = W * dpr; sceneRef.current.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let raf = 0; const t0 = performance.now();
+    const total = WORLDS.reduce((n, f) => n + f().sheep.length, 0);
+    if (screen === 'complete') { A.init(); A.music('menu'); A.setState('ending'); if (endRescued >= total) setTimeout(() => A.bell(1, 0.08), 7000); }
+    const loop = (now: number) => {
+      const still = motionRef.current;
+      if (screen === 'intro') drawPrologue(ctx, storyIdx, now - t0, still); else drawEnding(ctx, endRescued, total, now - t0, still);
+      if (!still) raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop); return () => cancelAnimationFrame(raf);
+  }, [screen, storyIdx, endRescued]);
 
   useEffect(() => {
     if (screen !== 'playing' || !ref.current) return;
@@ -474,65 +489,99 @@ export default function App() {
     let raf = 0, last = performance.now(), stopped = false, respawned = false; const clock = new FixedClock(); clock.time = S.current?.time ?? 0;
     const dpr = Math.min(window.devicePixelRatio || 1, 3); cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const pressed = new Set<string>(); const k: Record<string, boolean> = {};
-    const kd = (e: KeyboardEvent) => { const c = canonicalCode(e.code, bindings); if (c) { e.preventDefault(); pressed.add(c); } };
+    // A tap shorter than one simulation step still counts: keydown queues the action like a touch press.
+    const kd = (e: KeyboardEvent) => { const c = canonicalCode(e.code, bindings); if (!c) return; e.preventDefault(); pressed.add(c); const a = ACTIONS.find(v => defaultBindings[v] === c); if (a && !e.repeat) pendingActions.current.add(a); };
     const ku = (e: KeyboardEvent) => { pressed.delete(canonicalCode(e.code, bindings)); };
     window.addEventListener('keydown', kd, { passive: false }); window.addEventListener('keyup', ku);
     const pollInput = () => {
       const pad = navigator.getGamepads?.()[0];
-      const gp: Partial<Record<Action, boolean>> = pad ? { left: pad.axes[0] < -0.35 || pad.buttons[14]?.pressed, right: pad.axes[0] > 0.35 || pad.buttons[15]?.pressed, jump: pad.buttons[0]?.pressed, interact: pad.buttons[2]?.pressed, dash: pad.buttons[1]?.pressed, punch: pad.buttons[3]?.pressed, aim: pad.buttons[7]?.pressed, quick: pad.buttons[5]?.pressed, up: pad.axes[1] < -0.35, down: pad.axes[1] > 0.35 } : {};
-      for (const a of Object.keys(defaultBindings) as Action[]) { const key = a === 'interact' ? 'inter' : a; const down = pressed.has(defaultBindings[a]) || held.current.has(a) || !!gp[a]; if ((down && !k[key]) || pendingActions.current.has(a)) k[key + 'JP'] = true; k[key] = down; }
+      const gp: Partial<Record<Action, boolean>> = pad ? { left: pad.axes[0] < -0.35 || pad.buttons[14]?.pressed, right: pad.axes[0] > 0.35 || pad.buttons[15]?.pressed, jump: pad.buttons[0]?.pressed, interact: pad.buttons[2]?.pressed, dash: pad.buttons[1]?.pressed, punch: pad.buttons[3]?.pressed, aim: pad.buttons[7]?.pressed, quick: pad.buttons[5]?.pressed, up: pad.axes[1] < -0.35, down: pad.axes[1] > 0.35, hint: pad.buttons[8]?.pressed } : {};
+      for (const a of ACTIONS) { const key = a === 'interact' ? 'inter' : a; const down = pressed.has(defaultBindings[a]) || held.current.has(a) || !!gp[a]; if ((down && !k[key]) || pendingActions.current.has(a)) k[key + 'JP'] = true; k[key] = down; }
       pendingActions.current.clear();
     };
     const st = S.current; if (!st) return; const { world, player } = st; const def = world.def; const pal = def.pal; let pT = 0;
+    let standing: Plat | null = null, cause: Cause | null = null, shakeT = 0, rescueT = 0, ringT: Record<string, number> = {}, tabletHeard = false, lastPhase = world.threat.phase, lastRoom = '';
+    const say = (key: string, seconds = 3) => { world.message = key; world.messageT = seconds; };
+    const focus = (x: number, y: number, seconds = 1.2) => { if (!motionRef.current) world.cinematic = { x, y, t: seconds }; };
 
-    const hurt = (force = false) => {
+    const hurt = (force = false, why: Cause = 'deathAnimal') => {
       if (player.invinc > 0 || respawned) return;
-      player.hp--; player.invinc = 1.1; player.hitFlash = 0.25; A.hurt();
+      player.hp--; player.invinc = 1.1; player.hitFlash = 0.25; A.hurt(); shakeT = Math.max(shakeT, 0.2);
       player.vy = -280; player.vx = (player.faceR ? -1 : 1) * 180;
       if (player.hp > 0 && !force) return;
-      respawned = true; st.deaths++; world.streak++; setDeaths(st.deaths);
+      respawned = true; st.deaths++; world.streak++; setDeaths(st.deaths); cause = why;
       if (challengeRef.current && world.streak >= 3) { persist(); stopped = true; A.pause(); setScreen('reset'); return; }
       Object.assign(player, createPlayer(def.spawnX, def.spawnY)); resetResources(world);
-      world.threat = { kind: def.threat, timer: 0, level: 0, phase: 'calm', frontX: 0 };
-      world.hazards.forEach(h => { h.y = h.baseY; h.h = h.bottom - h.y; });
-      persist();
+      // Solved mechanisms stay solved. Only an unfinished threat restarts from its warning.
+      if (world.threat.phase !== 'cleared') world.threat = { kind: def.threat, timer: 0, level: 0, phase: 'calm', frontX: 0 };
+      resetFlood(world); st.camX = Math.max(0, player.x - W / 2);
+      say(why, 2.5); persist();
     };
-    const burst = (x: number, y: number, col: string, n = 12) => { for (let i = 0; i < n; i++) world.particles.push({ x, y, vx: (Math.random() - 0.5) * 220, vy: -70 - Math.random() * 110, life: 0.5, max: 0.5, size: 3 + Math.random() * 3, color: col, kind: 'spark' }); };
+    const burst = (x: number, y: number, col: string, n = 12, kind: 'spark' | 'dust' | 'splash' | 'chunk' = 'spark') => { if (world.particles.length > 400) return; for (let i = 0; i < n; i++) world.particles.push({ x, y, vx: (Math.random() - 0.5) * 220, vy: -70 - Math.random() * 110, life: 0.5, max: 0.5, size: 3 + Math.random() * 3, color: col, kind }); };
 
     const activateLever = (lever: Lever, byRock: boolean) => {
       const result = activate(world, lever, byRock ? 'rock' : 'hand');
+      if (lever.bell !== undefined && result !== 'blocked') { A.bell(lever.bell); ringT[lever.id] = 1; }
       if (result === 'puzzle') {
         const puzzle = PUZZLES[lever.puzzleId!];
         if (!puzzle) return;
         setActivePuzzle(puzzle); setPuzzleLever(lever.id);
-        stopped = true; setScreen('puzzle');
-      } else if (result === 'activated') { A.task(); burst(lever.x, lever.y - 20, pal.accent); persist(); }
-      else if (result === 'wrong') A.hurt();
+        stopped = true; persist(); A.setState('puzzle'); setScreen('puzzle');
+      } else if (result === 'activated') {
+        if (lever.bell === undefined) { A.task(); burst(lever.x, lever.y - 20, pal.accent); }
+        if (lever.bridgeId !== undefined) { const b = world.bridges.find(v => v.id === lever.bridgeId); if (b) { A.creak(); focus(b.hinge === 'right' ? b.x - b.w / 2 : b.x + b.w / 2, b.y, 1.6); } }
+        if (lever.lid >= 0) { A.gate(); const d = world.doors.find(v => v.id === lever.lid); if (d) focus(d.x, d.y + d.h / 2, 1.2); }
+        if (lever.optional && lever.puzzleId !== undefined) st.wCoins += 5;
+        persist();
+      } else if (result === 'wrong') { A.wrong(); say('bellWrong', 3); }
     };
     const tick = (dt: number, simulationTime: number) => {
       if (stopped) return false;
       pollInput(); st.time = simulationTime;
       const time = simulationTime * 1000; respawned = false; player.prevX = player.x; player.prevY = player.y;
-      // camera (smooth, slight lookahead)
-      st.camTX = player.x - W / 2 + (player.faceR ? 30 : -30); st.camTX = cl(st.camTX, 0, def.width - W);
-      let camTY = 0; if (player.y < 320) camTY = player.y - 320; camTY = Math.max(-240, camTY);
-      st.camX += (st.camTX - st.camX) * Math.min(1, dt * 7); st.camY += (camTY - st.camY) * Math.min(1, dt * 5);
+      if (world.messageT > 0) world.messageT -= dt;
+      if (shakeT > 0) shakeT -= dt; if (rescueT > 0) rescueT -= dt;
+      for (const id in ringT) ringT[id] = Math.max(0, ringT[id] - dt);
+
+      // Camera: smooth follow with velocity look-ahead, wider look toward an active threat, short focus shots.
+      const chase = world.threat.phase === 'active' || world.threat.phase === 'warning';
+      const look = (player.faceR ? 60 : -60) + cl(player.vx * 0.3, -90, 90) + (chase && (def.threat === 'avalanche' || def.threat === 'flood') ? 140 : 0);
+      if (world.cinematic) { world.cinematic.t -= dt; if (world.cinematic.t <= 0 || k.jumpJP || k.dashJP) world.cinematic = null; }
+      const fx = world.cinematic ? world.cinematic.x : player.x + look, fy = world.cinematic ? world.cinematic.y : player.y;
+      st.camTX = cl(fx - W / 2, 0, def.width - W);
+      const camTY = Math.max(-240, Math.min(0, fy - 330));
+      st.camX += (st.camTX - st.camX) * Math.min(1, dt * (world.cinematic ? 3 : 6)); st.camY += (camTY - st.camY) * Math.min(1, dt * 4);
       const cx = Math.round(st.camX), cy = Math.round(st.camY);
+
+      // Hints: one more tier per press, only for the current room.
+      const room = currentRoom(world, player.x);
+      if (room && room.room.id !== world.hintRoom) { world.hintRoom = room.room.id; world.hintTier = 0; }
+      if (room && room.room.id !== lastRoom) { lastRoom = room.room.id; }
+      if (k.hintJP && room) { world.hintTier = Math.min(3, world.hintTier + 1); A.hint(); say(room.room.hints[world.hintTier - 1], 7); }
+      k.hintJP = false;
 
       // aim
       if (player.rockN > 0) { if (k.up) player.aim -= 2.5 * dt; if (k.down) player.aim += 2.5 * dt; player.aim = cl(player.aim, -Math.PI / 2, 0); }
 
-      // pickup rock (E)
+      // Interact: sluice, scale, bell, lever, gate, then stones. Calling also calms a nearby sheep.
+      const calling = !!k.inter;
       if (k.interJP) {
-        if (player.rockN === 0 && world.levers.some(l => Math.abs(player.x - l.x) < 130)) player.rockN = 4;
-        let bi = -1, md = 90; world.rocks.forEach((r: Rock, i: number) => { const d = Math.hypot(r.x - player.x, r.y - player.y); if (d < md) { md = d; bi = i; } });
-        if (bi !== -1 && player.rockN < 4) { world.rocks.splice(bi, 1); player.rockN++; player.aim = 0; A.collect(); }
-        // Solved timed gates can be reopened from either side without another reward.
-        world.doors.filter(d => !d.open && Math.abs(player.x - d.x) < 80).forEach(d => { const lever = world.levers.find(l => l.lid === d.id && l.timed && l.solved); if (lever) activateLever(lever, false); });
-        // nearby physical switches; distant targets are rock-only
-        world.levers.forEach((l: Lever) => {
-          if (Math.abs(player.x - l.x) < 38 && Math.abs((player.y - 24) - l.y) < 50) activateLever(l, false);
-        });
+        const sluice = world.sluices.find(s => Math.abs(player.x - s.x) < 50 && Math.abs(player.y - s.y) < 40);
+        const bell = world.levers.find(l => l.bell !== undefined && Math.abs(player.x - l.x) < 34 && Math.abs(player.y - l.y) < 40);
+        if (sluice) { if (toggleSluice(world, sluice)) { A.task(); persist(); } else persist(); A.water(); const f = world.floaters[0]; if (f) focus(f.x + f.w / 2, 480, 2.2); }
+        else if (placeStone(world, player)) A.collect();
+        else if (bell) activateLever(bell, false);
+        else {
+          let used = false;
+          world.doors.filter(d => !d.open && Math.abs(player.x - d.x) < 80).forEach(d => { const lever = world.levers.find(l => l.lid === d.id && l.timed && l.solved); if (lever) { activateLever(lever, false); used = true; } });
+          world.levers.forEach((l: Lever) => { if (!l.target && l.bell === undefined && Math.abs(player.x - l.x) < 38 && Math.abs((player.y - 24) - l.y) < 50) { activateLever(l, false); used = true; } });
+          if (!used) {
+            let bi = -1, md = 90; world.rocks.forEach((r: Rock, i: number) => { const d = Math.hypot(r.x - player.x, r.y - player.y); if (d < md && !world.plates.some(p => p.need !== undefined && r.x > p.x && r.x < p.x + p.w && Math.abs(r.y + r.r - p.y) < 10)) { md = d; bi = i; } });
+            if (bi !== -1 && player.rockN < 4) { world.rocks.splice(bi, 1); player.rockN++; player.aim = 0; A.collect(); }
+            // Each mechanism keeps a renewable cache of stones, so a lost stone never blocks progress.
+            else if (player.rockN === 0 && (world.levers.some(l => Math.abs(player.x - l.x) < 160) || world.plates.some(p => Math.abs(player.x - p.x) < 160))) { player.rockN = 4; A.collect(); }
+          }
+        }
       }
       k.interJP = false; if (stopped) return false;
 
@@ -541,52 +590,26 @@ export default function App() {
       else if (!k.aim && player.charging) { player.charging = false; if (player.rockN > 0) { player.rockN--; world.rocks.push({ id: world.nextRockId++, ...launch(player.x, player.y, player.faceR, player.aim, player.power, player.vx) }); A.throwS(); } player.power = 0; }
       if (k.quickJP && player.rockN > 0 && !player.charging) { player.rockN--; const rock = launch(player.x, player.y, player.faceR, 0, 0.96, player.vx); world.rocks.push({ id: world.nextRockId++, ...rock }); A.throwS(); }
       k.quickJP = false;
-      // PUNCH (G/Q) — works always, especially when out of rocks
+      // Defensive push. It drives an animal back; it is never required.
       if (player.punchCD > 0) player.punchCD -= dt;
       if (k.punchJP && player.punchCD <= 0 && player.dashT <= 0) { player.attackHits = []; player.punchT = 0.18; player.punchCD = PUNCH_CD; player.state = 'punch'; A.punch(); }
       k.punchJP = false;
-      if (player.punchT > 0) { player.punchT -= dt; // apply punch damage in range
+      if (player.punchT > 0) { player.punchT -= dt;
         for (const e of world.enemies) {
           const result = strikeEnemy(world, player, e, [...world.platforms.filter(p => !p.broken), ...world.doors.filter(d => !d.open)]);
-          if (result !== 'miss') A.enemyH();
-          if (result === 'killed') { A.task(); burst(e.x, e.y, '#ef4444'); persist(); }
+          if (result !== 'miss') { A.enemyH(); scare(e); }
+          if (result === 'killed') { burst(e.x, e.y, '#c9b8a0'); persist(); }
         }
       }
 
-      // movement
-      let md = 0; if (k.left) md -= 1; if (k.right) md += 1; if (md !== 0) player.faceR = md > 0;
-      if (player.dashCD > 0) player.dashCD -= dt;
-      if (k.dashJP && player.dashCD <= 0 && player.dashT <= 0) { player.dashT = DASH_T; player.dashCD = DASH_CD; player.dashDir = player.faceR ? 1 : -1; A.dash(); player.invinc = Math.max(player.invinc, DASH_T + 0.05); }
-      k.dashJP = false;
-      if (player.dashT > 0) { player.dashT -= dt; player.vx = player.dashDir * DASH_SPD; player.vy = 0; player.state = 'dash'; if (Math.random() < 0.5) world.particles.push({ x: player.x, y: player.y - 18, vx: -player.dashDir * 50, vy: (Math.random() - 0.5) * 30, life: 0.25, max: 0.25, size: 3 + Math.random() * 2, color: pal.accent, kind: 'spark' }); }
-      else if (md !== 0) { player.vx += md * ACC * dt; player.vx = cl(player.vx, -MAXSPD, MAXSPD); }
-      else { const fr = player.grounded ? FRIC_G : FRIC_A; if (player.vx > 0) { player.vx -= fr * dt; if (player.vx < 0) player.vx = 0; } else if (player.vx < 0) { player.vx += fr * dt; if (player.vx > 0) player.vx = 0; } }
-
-      // jump
-      if (k.jumpJP) player.jumpBuf = 0.14; if (player.jumpBuf > 0) player.jumpBuf -= dt;
-      if (player.grounded) { player.coyote = 0.14; player.jumps = 2; } else if (player.coyote > 0) player.coyote -= dt;
-      if (player.jumpBuf > 0) { if (player.coyote > 0 || player.grounded) { A.jump(); player.vy = -JUMP; player.grounded = false; player.jumpBuf = 0; player.coyote = 0; player.jumps = 1; player.squash = 0.6; player.stretch = 1.4; } else if (player.jumps > 0 && player.dashT <= 0) { A.jump(); player.vy = -JUMP * 0.9; player.jumpBuf = 0; player.jumps--; player.squash = 0.7; player.stretch = 1.3; } }
-      k.jumpJP = false;
-      player.squash += (1 - player.squash) * 14 * dt; player.stretch += (1 - player.stretch) * 14 * dt;
-      let g = GRAVITY; if (player.vy > 0) g *= FALL_MUL; else if (player.vy < 0 && !k.jump) g *= LOWJ_MUL; player.vy += g * dt;
-
-      // ===== collisions (previous-position resolved) =====
-      // Timed gates close predictably; their lever can then be used again without duplicating puzzle credit.
+      // Timed gates close predictably and never inside a body.
       world.doors.forEach((d: Door) => {
-        if (d.timer !== undefined && d.open) {
-          d.timer -= dt;
-          if (d.timer <= 0) {
-            const occupied = hit(pR(player), d) || world.boxes.some((b: Box) => hit({ x: b.x, y: b.y, w: b.w, h: b.h }, d));
-            if (occupied) d.timer = 0.25; // never close a gate inside the player or a box
-            else { d.open = false; d.timer = undefined; world.levers.forEach((l: Lever) => { if (l.lid === d.id && l.timed) l.on = false; }); }
-          }
-        }
+        if (d.timer !== undefined && d.open) { d.timer -= dt; if (d.timer <= 0) { const occupied = hit(pR(player), d) || world.boxes.some(b => hit(b, d)); if (occupied) d.timer = 0.25; else { d.open = false; d.timer = undefined; world.levers.forEach((l: Lever) => { if (l.lid === d.id && l.timed) l.on = false; }); } } }
       });
-      // Bridges animate from vertical to horizontal after a distant target is struck.
-      world.bridges.forEach((b: Bridge) => { b.progress = cl(b.progress + (b.down ? dt * 2.2 : -dt * 2.2), 0, 1); });
+      world.bridges.forEach((b: Bridge) => { b.progress = cl(b.progress + (b.down ? dt * 1.4 : -dt * 1.4), 0, 1); });
       const bridgeSolids = world.bridges.map(bridgeSolid);
       const mp = world.mplatforms;
-      const fixedSolids = [...world.platforms.filter(p => !(p.type === 'break' && p.broken)), ...bridgeSolids, ...world.doors.filter(d => !d.open)];
+      const fixedSolids = [...world.platforms.filter(p => !p.broken), ...bridgeSolids, ...world.doors.filter(d => !d.open)];
       mp.forEach(m => {
         const vertical = m.axis === 'y', value = vertical ? m.y : m.x;
         const lo = vertical ? m.sy! : m.sx, hi = vertical ? m.ey! : m.ex;
@@ -594,313 +617,209 @@ export default function App() {
         movePlatform(m, vertical ? m.x : next, vertical ? next : m.y, player, world.boxes, fixedSolids);
         if (next <= lo || next >= hi) m.vx *= -1;
       });
+      // Plates first, so the lift reads this step's weight. Scales latch; lift plates do not.
+      const earned = stepPlates(world, player);
+      if (earned.length) { A.plate(); A.gate(); const d = world.doors.find(v => world.plates.some(p => p.lid === v.id && p.solved)); if (d) focus(d.x, d.y + d.h - 120, 1.4); persist(); }
       world.elevators.forEach(ev => {
-        const plate = world.plates.find(p => p.id === ev.plateId);
-        const pressed = plate && (hit(pR(player), { x: plate.x, y: plate.y - 6, w: plate.w, h: 12 }) || world.boxes.some(b => b.x + b.w > plate.x && b.x < plate.x + plate.w && Math.abs(b.y + b.h - plate.y) < 3) || world.rocks.some(r => Math.abs(r.y + r.r - plate.y) < 3 && r.x > plate.x && r.x < plate.x + plate.w));
-        if (plate) plate.pressed = !!pressed;
-        const mover = Object.assign(ev, { vx: ev.speed });
-        movePlatform(mover, ev.x, cl(ev.y + (pressed ? -1 : 1) * ev.speed * dt, ev.topY, ev.baseY), player, world.boxes, fixedSolids);
+        const plate = world.plates.find(p => p.id === ev.plateId); const up = !!plate?.pressed;
+        const before = ev.y; ev.vx = ev.speed;
+        movePlatform(ev as Parameters<typeof movePlatform>[0], ev.x, cl(ev.y + (up ? -1 : 1) * ev.speed * dt, ev.topY, ev.baseY), player, world.boxes, fixedSolids);
+        if (Math.abs(ev.y - before) > 0.1 && Math.floor(simulationTime * 4) !== Math.floor((simulationTime - dt) * 4)) A.lift();
       });
-      const solids = [...fixedSolids, ...mp, ...world.elevators];
-      // Sub-stepped horizontal sweep prevents dash tunnelling through thin gates and raised bridges.
-      const totalDX = player.vx * dt; const hSteps = Math.max(1, Math.ceil(Math.abs(totalDX) / 7)); const stepDX = totalDX / hSteps;
-      let pr = pR(player); let hBlocked = false;
-      for (let hs = 0; hs < hSteps && !hBlocked; hs++) {
-        const prevTop = player.y - player.h, prevBottom = player.y;
-        player.x += stepDX; pr = pR(player);
-        for (const p of solids) {
-          if (!hit(pr, p)) continue;
-          const beside = !(prevBottom <= p.y + 2 || prevTop >= p.y + p.h - 2); if (!beside) continue;
-          if (stepDX > 0) player.x = p.x - player.w / 2; else if (stepDX < 0) player.x = p.x + p.w + player.w / 2;
-          player.vx = 0; hBlocked = true; pr = pR(player); break;
-        }
-        if (hBlocked) break;
-        for (const b of world.boxes) {
-          const br = { x: b.x, y: b.y, w: b.w, h: b.h }; if (!hit(pr, br)) continue;
-          const beside = !(prevBottom <= b.y + 2 || prevTop >= b.y + b.h - 2); if (!beside) continue;
-          if (stepDX > 0) { b.vx = Math.max(b.vx, player.vx * 0.6); player.x = b.x - player.w / 2; }
-          else if (stepDX < 0) { b.vx = Math.min(b.vx, player.vx * 0.6); player.x = b.x + b.w + player.w / 2; }
-          player.vx = 0; hBlocked = true; pr = pR(player); break;
-        }
-      }
-      // Boxes also use sub-steps, so fast pushes cannot pass through a wall.
+      stepWater(world, player, fixedSolids, dt);
+      const solids = [...fixedSolids, ...mp, ...world.elevators, ...world.floaters];
+
+      // Shared physics: the reachability audit runs this same function.
+      let md = 0; if (k.left) md -= 1; if (k.right) md += 1;
+      const wasGrounded = player.grounded;
+      const move = stepPlayer(player, { move: md as -1 | 0 | 1, jumpPressed: !!k.jumpJP, jumpHeld: !!k.jump, dashPressed: !!k.dashJP }, dt, solids, world.boxes, def.width);
+      k.jumpJP = false; k.dashJP = false;
+      if (move.jumped) A.jump(); if (move.dashed) A.dash();
+      if (player.dashT > 0 && Math.random() < 0.5) world.particles.push({ x: player.x, y: player.y - 18, vx: -player.dashDir * 50, vy: (Math.random() - 0.5) * 30, life: 0.25, max: 0.25, size: 3 + Math.random() * 2, color: pal.accent, kind: 'spark' });
+      standing = player.grounded ? (move.landedOn && 'type' in move.landedOn ? move.landedOn as Plat : standing && player.grounded ? standing : null) : null;
+      if (move.landed && !wasGrounded && move.impactVy > 200) { player.squash = 1.4; player.stretch = 0.6; A.step(surfaceOf(def.id, standing), move.impactVy > 700); burst(player.x, player.y, def.id === 'snow' ? '#e8f2f6' : '#8a7a5e', 4, 'dust'); }
+      if (stepCracks(world.platforms, standing, player, dt)) A.crack();
+      // Boxes slide with friction and fall with gravity; sub-steps prevent tunnelling.
       for (const b of world.boxes) {
         b.vx *= Math.pow(0.85, dt * 60); const boxDX = b.vx * dt; const bs = Math.max(1, Math.ceil(Math.abs(boxDX) / 7));
-        for (let s = 0; s < bs; s++) { b.x += boxDX / bs; let br = { x: b.x, y: b.y, w: b.w, h: b.h }; let stop = false; for (const p of solids) { if (hit(br, p)) { if (boxDX > 0) b.x = p.x - b.w; else if (boxDX < 0) b.x = p.x + p.w; b.vx = 0; stop = true; break; } } if (stop) break; }
+        for (let s = 0; s < bs; s++) { b.x += boxDX / bs; const br = { x: b.x, y: b.y, w: b.w, h: b.h }; let stop = false; for (const p of solids) { if (hit(br, p)) { if (boxDX > 0) b.x = p.x - b.w; else if (boxDX < 0) b.x = p.x + p.w; b.vx = 0; stop = true; break; } } if (stop) break; }
+        b.prevY = b.y; b.vy += PHYS.gravity * dt; b.impactVy = b.vy; const boxDY = b.vy * dt; const vs = Math.max(1, Math.ceil(Math.abs(boxDY) / 7));
+        for (let s = 0; s < vs; s++) { const prevBottom = b.y + b.h, prevTop = b.y; b.y += boxDY / vs; const br = { x: b.x, y: b.y, w: b.w, h: b.h }; let stop = false; for (const p of solids) { if (!hit(br, p)) continue; if (boxDY >= 0 && prevBottom <= p.y + 2) { b.y = p.y - b.h; b.impactVy = b.vy; b.vy = 0; stop = true; break; } if (boxDY < 0 && prevTop >= p.y + p.h - 2) { b.y = p.y + p.h; b.vy = 0; stop = true; break; } } if (stop) break; }
       }
-      // Sub-stepped vertical sweep prevents falling through moving platforms and narrow bridge planks.
-      const impactVy = player.vy; const totalDY = player.vy * dt; const vSteps = Math.max(1, Math.ceil(Math.abs(totalDY) / 7)); const stepDY = totalDY / vSteps;
-      player.grounded = false;  let vBlocked = false;
-      for (let vs = 0; vs < vSteps && !vBlocked; vs++) {
-        const beforeY = player.y, beforeTop = beforeY - player.h;
-        player.y += stepDY; pr = pR(player);
-        let bestY = Infinity, bestP: any = null;
-        for (const p of solids) {
-          if (!hit(pr, p)) continue;
-          if (stepDY >= 0 && beforeY <= p.y + 2 && p.y < bestY) { bestY = p.y; bestP = p; }
-          else if (stepDY < 0 && beforeTop >= p.y + p.h - 2) { player.y = p.y + p.h + player.h; player.vy = 0; vBlocked = true; pr = pR(player); break; }
-        }
-        if (bestP) {
-          player.y = bestY; player.vy = 0; player.grounded = true; vBlocked = true;
-          if (impactVy > 200) { player.squash = 1.4; player.stretch = 0.6; A.land(); }
-          const bp = bestP as Plat; if (bp.type === 'break' && !bp.broken) { bp.broken = true; bp.breakT = 0.4; }
-          pr = pR(player); break;
-        }
-        for (const b of world.boxes) {
-          const br = { x: b.x, y: b.y, w: b.w, h: b.h }; if (!hit(pr, br)) continue;
-          if (stepDY >= 0 && beforeY <= b.y + 2) { player.y = b.y; player.vy = 0; player.grounded = true; vBlocked = true; if (impactVy > 200) { player.squash = 1.4; player.stretch = 0.6; A.land(); } pr = pR(player); break; }
-          if (stepDY < 0 && beforeTop >= b.y + b.h - 2) { player.y = b.y + b.h + player.h; player.vy = 0; vBlocked = true; pr = pR(player); break; }
-        }
-      }
-      // Box gravity with sub-steps; no fall-through at low frame rates.
-      for (const b of world.boxes) {
-        b.prevY = b.y; b.vy += GRAVITY * dt; b.impactVy = b.vy; const boxDY = b.vy * dt; const bs = Math.max(1, Math.ceil(Math.abs(boxDY) / 7));
-        for (let s = 0; s < bs; s++) { const prevBottom = b.y + b.h, prevTop = b.y; b.y += boxDY / bs; const br = { x: b.x, y: b.y, w: b.w, h: b.h }; let stop = false; for (const p of solids) { if (!hit(br, p)) continue; if (boxDY >= 0 && prevBottom <= p.y + 2) { b.y = p.y - b.h; b.impactVy = b.vy; b.vy = 0; stop = true; break; } if (boxDY < 0 && prevTop >= p.y + p.h - 2) { b.y = p.y + p.h; b.vy = 0; stop = true; break; } } if (stop) break; }
-      }
-      if (player.x < player.w / 2) { player.x = player.w / 2; player.vx = 0; } if (player.x > def.width - player.w / 2) { player.x = def.width - player.w / 2; player.vx = 0; }
-      world.platforms.forEach((p: Plat) => { if (p.broken && p.breakT !== undefined) p.breakT -= dt; });
 
-      // rocks physics
+      // Rocks: bounce, roll, strike targets, and distract animals where they land.
       const s2 = [...solids, ...world.boxes];
       for (let i = world.rocks.length - 1; i >= 0; i--) {
-        const r = world.rocks[i]; const px = r.x, py = r.y; projectileStep(r, dt);
-        for (const pl of s2) { if (r.x + r.r > pl.x && r.x - r.r < pl.x + pl.w && r.y + r.r > pl.y && r.y - r.r < pl.y + pl.h) { if (py + r.r <= pl.y && r.vy > 0) { r.y = pl.y - r.r; if (r.vy > 120) A.rockHit(); r.vy *= -ROCK_BOUNCE; if (Math.abs(r.vx) > 0) { r.vx -= Math.sign(r.vx) * ROCK_FRIC * dt; if (Math.abs(r.vx) < 12) r.vx = 0; } if (Math.abs(r.vy) < 50) r.vy = 0; } else if (py - r.r >= pl.y + pl.h && r.vy < 0) { r.y = pl.y + pl.h + r.r; r.vy *= -ROCK_BOUNCE; } else { if (px + r.r <= pl.x && r.vx > 0) { r.x = pl.x - r.r; r.vx *= -ROCK_BOUNCE; } else if (px - r.r >= pl.x + pl.w && r.vx < 0) { r.x = pl.x + pl.w + r.r; r.vx *= -ROCK_BOUNCE; } } } }
-        world.levers.forEach((l: Lever) => {
-          if (!l.on && hit({ x: r.x - r.r, y: r.y - r.r, w: r.r * 2, h: r.r * 2 }, { x: l.x - 10, y: l.y - 40, w: 28, h: 42 })) activateLever(l, true);
-        });
-        for (const hb of world.hanging) { if (!hb.hit && hit({ x: r.x - r.r, y: r.y - r.r, w: r.r * 2, h: r.r * 2 }, { x: hb.x, y: hb.y, w: hb.w, h: hb.h })) { hb.hit = true; world.boxes.push({ x: hb.x, y: hb.y, w: hb.w, h: hb.h, vx: 0, vy: 0 }); A.rockHit(); r.vy = -50; r.vx = r.vx > 0 ? -40 : 40; } }
+        const r = world.rocks[i]; const px = r.x, py = r.y; if (r.landed && r.vx === 0 && r.vy === 0) continue;
+        projectileStep(r, dt); let struck = false;
+        for (const pl of s2) { if (r.x + r.r > pl.x && r.x - r.r < pl.x + pl.w && r.y + r.r > pl.y && r.y - r.r < pl.y + pl.h) { struck = true; if (py + r.r <= pl.y && r.vy > 0) { r.y = pl.y - r.r; if (r.vy > 120) A.rockHit(def.id === 'snow' ? 'ice' : 'rock'); r.vy *= -ROCK_BOUNCE; if (Math.abs(r.vx) > 0) { r.vx -= Math.sign(r.vx) * ROCK_FRIC * dt; if (Math.abs(r.vx) < 12) r.vx = 0; } if (Math.abs(r.vy) < 50) r.vy = 0; } else if (py - r.r >= pl.y + pl.h && r.vy < 0) { r.y = pl.y + pl.h + r.r; r.vy *= -ROCK_BOUNCE; } else { if (px + r.r <= pl.x && r.vx > 0) { r.x = pl.x - r.r; r.vx *= -ROCK_BOUNCE; } else if (px - r.r >= pl.x + pl.w && r.vx < 0) { r.x = pl.x + pl.w + r.r; r.vx *= -ROCK_BOUNCE; } } } }
+        world.levers.forEach((l: Lever) => { if (!l.on && l.target && Math.hypot(r.vx, r.vy) > 60 && hit({ x: r.x - r.r, y: r.y - r.r, w: r.r * 2, h: r.r * 2 }, { x: l.x - 10, y: l.y - 40, w: 28, h: 42 })) { A.rockHit('wood'); activateLever(l, true); } });
+        for (const hb of world.hanging) { if (!hb.hit && hit({ x: r.x - r.r, y: r.y - r.r, w: r.r * 2, h: r.r * 2 }, hb)) { hb.hit = true; world.boxes.push({ id: `drop-${hb.x}`, x: hb.x, y: hb.y, w: hb.w, h: hb.h, vx: 0, vy: 0 }); A.rockHit('wood'); r.vy = -50; r.vx = r.vx > 0 ? -40 : 40; } }
+        if (struck && !r.landed && r.vy === 0) { r.landed = true; distract(world.enemies, r.x, r.y); }
         if (r.y > H + 200) world.rocks.splice(i, 1);
       }
+      if (world.rocks.length > 40) world.rocks.splice(0, world.rocks.length - 40);
 
-      // enemies
+      // Animals.
+      const sheltered = inShelter(world, player);
       for (const e of world.enemies) {
-        if (e.state === 'dead') { e.deadT -= dt; continue; }
-        // knockback
-        if (e.kbX !== 0) { const nx = cl(e.x + e.kbX * dt, e.sx, e.ex); if (!solids.some(p => hit({ x: nx, y: e.y, w: e.w, h: e.h - 1 }, p))) e.x = nx; e.kbX *= Math.pow(0.85, dt * 60); if (Math.abs(e.kbX) < 5) e.kbX = 0; }
-        if (e.type === 'eagle') {
-          e.homeY ??= e.y; e.anim += dt; e.shootT -= dt;
-          // Flight has an absolute reference, with a visible preparation and recovery interval.
-          const phase = (simulationTime + e.sx / 100) % 7;
-          e.state = phase > 4 && phase < 4.8 ? 'attack' : 'walk';
-          const dive = phase >= 4.8 && phase < 5.7 ? Math.sin((phase - 4.8) / 0.9 * Math.PI) * 170 : 0;
-          e.x = (e.sx + e.ex) / 2 + Math.sin(simulationTime * 0.5) * (e.ex - e.sx) / 2;
-          e.y = cl(e.homeY + Math.sin(simulationTime * 1.2) * 18 + dive, 60, 390); e.faceR = Math.cos(simulationTime * 0.5) > 0;
-          if (dive > 80 && hit(pR(player), e)) hurt();
-          if (respawned) return false;
-          continue;
-        }
-        e.vy += GRAVITY * dt; const ePB = e.y + e.h; e.y += e.vy * dt; e.anim += dt;
-        let er = { x: e.x, y: e.y, w: e.w, h: e.h }; e.onGround = false; let bestEY = Infinity;
-        for (const p of solids) { if (hit(er, p)) { if (e.vy >= 0 && ePB <= p.y + 4 && (e.x + e.w > p.x + 1 && e.x < p.x + p.w - 1)) { if (p.y < bestEY) bestEY = p.y; } } er = { x: e.x, y: e.y, w: e.w, h: e.h }; }
-        if (bestEY < Infinity) { e.y = bestEY - e.h; e.vy = 0; e.onGround = true; }
-        if (e.dmgT > 0) e.dmgT -= dt;
-        const dx = Math.abs(player.x - e.x), dy = Math.abs(player.y - e.y);
-        const relevantThreat = world.threat.kind === 'wolfpack' && e.type === 'wolf';
-        const pressureBoost = relevantThreat ? 1 + world.threat.level * 0.28 : 1;
-        const sight = (e.type === 'lynx' ? 360 : 300) * pressureBoost;
-        const visible = clearLine({ x: e.x + e.w / 2, y: e.y + e.h / 2 }, { x: player.x, y: player.y - 20 }, solids); const ambient = e.type === 'fox' || e.type === 'macaque';
-        const inSight = !ambient && dx < sight && dy < 130 && visible; const inRange = !ambient && dx < 56 && dy < 50 && visible;
-        if (e.type === 'snake') { e.state = 'walk'; if (e.faceR) { e.vx = 55; if (e.x > e.ex) e.faceR = false; } else { e.vx = -55; if (e.x < e.sx) e.faceR = true; } if (inRange && player.invinc <= 0) hurt(); }
-        else { // realistic wolf speed (moderate, visible)
-          if (inSight) { if (inRange) { e.vx = 0; if (e.state !== 'attack') { e.state = 'attack'; e.atkT = 0; e.faceR = player.x > e.x; A.hurt(); } e.atkT += dt; if (e.atkT > 0.45 && inRange && player.invinc <= 0) { hurt(); e.state = 'walk'; e.atkT = 0; } } else { e.state = 'walk'; e.faceR = player.x > e.x; const baseSp = e.type === 'lynx' ? 175 : e.type === 'wolf' ? 145 : e.type === 'boar' ? 120 : 125; const sp = baseSp * pressureBoost; e.vx = e.faceR ? sp : -sp; } }
-          else { e.state = 'walk'; if (e.faceR) { e.vx = 65; if (e.x > e.ex) e.faceR = false; } else { e.vx = -65; if (e.x < e.sx) e.faceR = true; } }
-        }
-        const nextX = e.x + e.vx * dt;
-        const edge = e.vx > 0 ? nextX + e.w : nextX;
-        const floorAhead = solids.some(p => edge >= p.x && edge <= p.x + p.w && Math.abs(p.y - (e.y + e.h)) < 8);
-        if ((e.onGround && !floorAhead) || solids.some(p => hit({ x: nextX, y: e.y, w: e.w, h: e.h - 1 }, p))) { e.vx = 0; e.faceR = !e.faceR; } else e.x = nextX;
+        const ev = updateAnimal(e, { player, solids, dt, time: simulationTime, sheltered });
+        if (ev.sound && Math.abs(e.x - player.x) < 700) A.animal(ev.sound);
+        if (ev.hurt) hurt(false, 'deathAnimal');
         if (respawned) return false;
-        if (e.x < e.sx) { e.x = e.sx; e.faceR = true; } if (e.x > e.ex) { e.x = e.ex; e.faceR = false; }
       }
-      // Resolve all animal contacts through the same idempotent damage rules.
+      if (!world.warnedWolves && def.threat === 'wolfpack') { const wolf = world.enemies.find(e => e.type === 'wolf' && e.state !== 'dead'); if (wolf && player.x > wolf.sx - 260) { world.warnedWolves = true; A.animal('howl'); say('wolvesNear', 3.5); } }
       for (const e of world.enemies) {
         for (const r of world.rocks) {
           if (e.hp <= 0) break;
           const cX = cl(r.x, e.x, e.x + e.w), cY = cl(r.y, e.y, e.y + e.h);
           if ((r.x - cX) ** 2 + (r.y - cY) ** 2 < r.r * r.r && Math.hypot(r.vx, r.vy) > 90) {
-            if (damageEnemy(world, e, 1)) { A.task(); persist(); }
+            A.enemyH(); scare(e); if (damageEnemy(world, e, 1)) persist();
             r.vx = -Math.sign(r.vx) * 35; r.vy = -35;
           }
         }
-        for (const b of world.boxes) {
-          if (e.hp <= 0) break;
-          if (downwardContact(b, (b.prevY ?? b.y) + b.h, b.impactVy ?? 0, e) && damageEnemy(world, e, e.hp)) { A.task(); persist(); }
-        }
+        for (const b of world.boxes) { if (e.hp <= 0) break; if (downwardContact(b, (b.prevY ?? b.y) + b.h, b.impactVy ?? 0, e) && damageEnemy(world, e, e.hp)) persist(); }
       }
-      // projectiles
-      for (let i = world.projectiles.length - 1; i >= 0; i--) { const p = world.projectiles[i]; p.vy += GRAVITY * 0.2 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; if (player.invinc <= 0) { const cX = cl(p.x, player.x - player.w / 2, player.x + player.w / 2), cY = cl(p.y, player.y - player.h, player.y); if ((p.x - cX) ** 2 + (p.y - cY) ** 2 < p.r * p.r) { hurt(); world.projectiles.splice(i, 1); continue; } } if (p.life <= 0 || p.y > H + 100) world.projectiles.splice(i, 1); }
-      if (respawned) return false;
-      // coins
+      // Coins.
       let collected = false;
-      world.coins.forEach((c: Coin) => { c.bob += dt; if (!c.got && Math.abs(player.x - c.x) < 24 && Math.abs((player.y - 22) - c.y) < 28) { c.got = true; st.wCoins++; collected = true; A.collect(); burst(c.x, c.y, pal.accent, 6); } });
+      world.coins.forEach(c => { c.bob += dt; if (!c.got && Math.abs(player.x - c.x) < 24 && Math.abs((player.y - 22) - c.y) < 28) { c.got = true; st.wCoins++; collected = true; A.collect(); burst(c.x, c.y, pal.accent, 6); } });
       if (collected) persist();
-      // sheep
-      world.sheep.forEach((s: Sheep) => { s.bob += dt; if (!s.rescued && Math.abs(player.x - s.x) < 36 && Math.abs((player.y - 20) - s.y) < 30) { s.rescued = true; world.rescued++; persist(); A.sheep(); A.task(); burst(s.x, s.y, '#f0ece4', 10); } });
-      // checkpoints
-      world.checkpoints.forEach((c: Check) => { if (!c.on && Math.abs(player.x - c.x) < 38 && player.grounded) { c.on = true; A.task(); def.spawnX = c.x + 60; def.spawnY = c.y; world.streak = 0; persist(); } });
-      // hazards
-      for (const h of world.hazards) { if (respawned) break; if (hit(pR(player), { x: h.x, y: h.y, w: h.w, h: h.h }) && player.invinc <= 0) hurt(true); }
-
-      if (respawned) return false;
-      // pressure plates (Limbo-style: pressed while player/box/rock stands on it)
-      let plateChanged = false;
-      world.plates.forEach((pl: Plate, plateIndex: number) => {
-        if (pl.elevatorId === undefined && !pl.solved) {
-          pl.pressed = false;
-          // player, boxes, and resting rocks all provide weight
-          if (hit(pR(player), { x: pl.x, y: pl.y - 6, w: pl.w, h: 12 }) && player.grounded) pl.pressed = true;
-          for (const b of world.boxes) { if (b.x + b.w > pl.x && b.x < pl.x + pl.w && Math.abs((b.y + b.h) - pl.y) < 12) pl.pressed = true; }
-          for (const r of world.rocks) { if (r.x + r.r > pl.x && r.x - r.r < pl.x + pl.w && Math.abs((r.y + r.r) - pl.y) < 10) pl.pressed = true; }
-          if (pl.pressed) { pl.solved = true; award(world, `plate-${plateIndex}`); plateChanged = true; A.task(); burst(pl.x + pl.w / 2, pl.y - 8, pal.accent, 10); }
-        }
-        // Elevator plates are dynamic: the platform rises only while weight is on the plate.
-        if (pl.elevatorId !== undefined) {
-          pl.pressed = false;
-          if (hit(pR(player), { x: pl.x, y: pl.y - 6, w: pl.w, h: 12 }) && player.grounded) pl.pressed = true;
-          for (const b of world.boxes) { if (b.x + b.w > pl.x && b.x < pl.x + pl.w && Math.abs((b.y + b.h) - pl.y) < 12) pl.pressed = true; }
-          for (const r of world.rocks) { if (r.x + r.r > pl.x && r.x - r.r < pl.x + pl.w && Math.abs((r.y + r.r) - pl.y) < 10) pl.pressed = true; }
-          // do not latch or count as solved — it's a dynamic mechanism, not a one-shot puzzle
-        } else if (pl.solved) pl.pressed = true; // Solved plates latch the mechanism permanently.
-        // Door-linked plates
-        if (pl.lid >= 0) world.doors.forEach((d: Door) => { if (d.id === pl.lid) d.open = !!pl.pressed; });
-      });
-
-      if (plateChanged) persist();
-      // Environmental pressure: telegraphed, escapable, and reset-safe.
-      const th = world.threat; if (!world.avalancheCleared && (th.kind !== 'avalanche' || (world.levers.every(l => l.on || !!l.solved) && player.x > 2780))) th.timer += dt;
-      if (th.kind === 'flood') {
-        th.level = cl(th.timer / 150, 0, 1); th.phase = th.level > 0.62 ? 'warning' : 'calm';
-        // slow, capped rise; water never consumes half the screen
-        world.hazards.forEach((h: Haz) => { if (h.type === 'water' && h.y > GY - 50) { h.y = Math.max(GY - 50, h.y - 2.4 * dt * (0.35 + th.level)); h.h = h.bottom - h.y; } });
-      } else if (th.kind === 'avalanche') {
-        th.level = cl(th.timer / 12, 0, 1);
-        if (th.timer > 4 && th.phase === 'calm') th.phase = 'warning'; // eight-second visual/audio warning
-        if (th.timer > 12 && th.phase !== 'active') { th.phase = 'active'; th.frontX = 2250; A.hurt(); }
-        if (th.phase === 'active') {
-          const safe = world.platforms.some(p => p.h < 40 && p.w >= 150 && player.x > p.x && player.x < p.x + p.w && player.y - player.h >= p.y + p.h && player.y <= p.y + 160);
-          if (safe) {
-            if (th.frontX > player.x + 100) { world.avalancheCleared = true; th.phase = 'calm'; th.level = 0; } else th.frontX += 250 * dt;
-          } else {
-            th.frontX += (215 + th.level * 35) * dt;
-            if (th.frontX > player.x - 32 && player.invinc <= 0) hurt(true);
-          }
-        }
-      } else {
-        th.level = cl(th.timer / 105, 0, 1); th.phase = th.level > 0.7 ? 'warning' : 'calm';
-        // Wolf/eagle pressure is expressed through their AI, not unavoidable periodic damage.
+      // Sheep: calm, then rescue. The record is saved at the moment of rescue.
+      player.state === 'calm' && (player.state = 'idle');
+      for (const s of world.sheep) {
+        const ev = stepSheep(s, player, world.enemies, calling, dt);
+        if (s.state === 'calming' && player.grounded && Math.abs(player.vx) < 40) player.state = 'calm';
+        if (ev === 'rescued') { world.rescued++; persist(); A.sheep('calm'); A.bell(1, 0.06); rescueT = 3.5; burst(s.x, s.y - 20, '#f2e8cd', 14); say('rescuedMsg', 3); focus(s.x, s.y, 1.2); }
+        else if (ev === 'frightened') { A.sheep('fear'); }
+        else if (ev === 'bleat') A.sheep(Math.abs(s.x - player.x) > 500 ? 'far' : 'near');
       }
+      // Checkpoints.
+      world.checkpoints.forEach((c: Check) => { if (!c.on && Math.abs(player.x - c.x) < 38 && player.grounded) { c.on = true; A.checkpoint(); burst(c.x, c.y - 34, pal.accent, 10); def.spawnX = c.x + 60; def.spawnY = c.y; world.streak = 0; persist(); } });
+      // Hazards.
+      for (const h of world.hazards) { if (respawned) break; if (hit(pR(player), h) && player.invinc <= 0) { if (h.type === 'water') { A.splash(); burst(player.x, h.y, '#c8eee5', 10, 'splash'); } hurt(true, h.type === 'water' ? 'deathWater' : 'deathSpike'); } }
+      if (respawned) return false;
+      for (const key of stepTriggers(world, player)) { A.task(); burst(player.x, player.y - 30, pal.accent, 12); void key; persist(); }
+
+      // Environmental threats. Each one is announced, telegraphed and escapable.
+      if (def.flood && stepFlood(world, player, dt)) { A.splash(); hurt(true, 'deathWater'); }
+      if (def.avalanche && stepAvalanche(world, player, dt)) hurt(true, 'deathSnow');
+      if (respawned) return false;
+      if (world.threat.phase !== lastPhase) {
+        if (world.threat.phase === 'warning') { A.rumble(0.18); say(def.flood ? 'floodWarn' : 'avalanche', 5); shakeT = 0.6; }
+        if (world.threat.phase === 'active') { A.rumble(0.35); shakeT = 1; }
+        if (world.threat.phase === 'cleared') { say('shelterSafe', 2); A.task(); persist(); }
+        lastPhase = world.threat.phase;
+      }
+      if (world.threat.phase === 'active' && def.avalanche && Math.random() < dt * 6) world.particles.push({ x: world.threat.frontX + Math.random() * 120, y: cy - 10, vx: 60, vy: 200, life: 2, max: 2, size: 6 + Math.random() * 6, color: '#f3f8fb', kind: 'chunk' });
+      A.storm(world.threat.phase === 'active' ? 1 : world.threat.phase === 'warning' ? 0.5 : 0);
 
       if (respawned) return false;
-      // world progression: portal is always usable (smooth pass-through); tasks give bonus + feedback
       const done = world.rescued >= def.goalS && world.solved >= def.goalP;
-      if (done && !world.completionAwarded) { world.completionAwarded = true; st.wCoins += 10; A.portal(); burst(player.x, player.y - 30, '#34d399', 20); persist(); }
+      if (done && !world.completionAwarded) { world.completionAwarded = true; st.wCoins += 10; A.portal(); burst(player.x, player.y - 30, '#e8d38c', 20); say('allDone', 3); persist(); }
       world.opened = true; // Rescue totals determine the ending. Animals never gate the route.
-      // success / portal
-      if (def.id === 'snow' && player.x > 4560 && player.grounded) { persist(wi, true); setTotalCoins(st.totalCoins + st.wCoins); stopped = true; setScreen('complete'); return false; }
+      if (def.endX !== undefined && player.x > def.endX && player.grounded) {
+        persist(wi, true); setTotalCoins(st.totalCoins + st.wCoins);
+        setEndRescued(WORLDS.reduce((n, f) => { const d = f(); return n + d.sheep.filter(s => saveRef.current.rooms[d.id]?.sheep.includes(s.id)).length; }, 0));
+        stopped = true; setScreen('complete'); return false;
+      }
       if (def.portal.w > 0 && hit(pR(player), def.portal)) { const next = wi + 1; persist(Math.min(next, WORLDS.length - 1)); setTotalCoins(st.totalCoins + st.wCoins); stopped = true; setWi(next); setScreen('transition'); return false; }
-      if (player.y > H + 80) hurt(true);
+      if (player.y > H + 80) hurt(true, 'deathFall');
       if (respawned) return false;
       if (player.invinc > 0) player.invinc -= dt; if (player.hitFlash > 0) player.hitFlash -= dt;
 
-      // particles
-      pT -= dt; if (pT <= 0) { const kk = def.pType; pT = kk === 'mist' ? 0.45 : 0.07; if (kk === 'snow') world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -18 + Math.random() * 8, vy: 40 + Math.random() * 30, life: 6, max: 6, size: 2 + Math.random() * 2, color: pal.particle, kind: 'snow' }); if (kk === 'leaf') world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -25 + Math.random() * 25, vy: 25 + Math.random() * 15, life: 7, max: 7, size: 3 + Math.random() * 2, color: pal.particle, kind: 'leaf' }); if (kk === 'mist') world.particles.push({ x: cx + Math.random() * W, y: cy + H * 0.7 + Math.random() * 120, vx: 30 + Math.random() * 20, vy: 0, life: 5, max: 5, size: 30 + Math.random() * 20, color: pal.particle, kind: 'mist' }); }
-      for (let i = world.particles.length - 1; i >= 0; i--) { const p = world.particles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; if (p.kind === 'leaf') p.vx += Math.sin(p.life * 4) * 18 * dt; if (p.life <= 0) world.particles.splice(i, 1); }
+      // Music follows the situation: threat, shelter, rescue, nearby unsolved mechanism, or exploration.
+      const nearPuzzle = room && !room.complete && (world.levers.some(l => !l.on && !l.optional && Math.abs(l.x - player.x) < 320) || world.plates.some(p => p.need !== undefined && !p.solved && Math.abs(p.x - player.x) < 300) || world.sluices.some(s => !world.awards.includes(s.award ?? '') && Math.abs(s.x - player.x) < 300));
+      const wanted: MusicState = world.threat.phase === 'active' ? (sheltered ? 'shelter' : 'chase') : world.threat.phase === 'warning' ? 'warning' : rescueT > 0 ? 'rescue' : nearPuzzle ? 'puzzle' : 'explore';
+      A.setState(wanted);
 
-      // anim
-      if (player.dashT <= 0 && player.punchT <= 0) { if (!player.grounded) player.state = player.vy < 0 ? 'jump' : 'fall'; else if (Math.abs(player.vx) > 10) { const sp = Math.abs(player.vx) / MAXSPD; player.state = sp > 0.6 ? 'run' : 'walk'; player.anim += dt * 14 * sp; player.stepT += dt * sp; if (player.stepT > 0.24) { A.land(); player.stepT = 0; } } else { player.state = 'idle'; player.anim += dt; player.stepT = 0; } }
+      // Bell tablet plays its pattern once each time the shepherd approaches it.
+      const tablet = world.decor.find(d => d.kind === 'tablet');
+      if (tablet) { const nearT = Math.abs(player.x - tablet.x) < 140; if (nearT && !tabletHeard) { tabletHeard = true; (tablet.data ?? []).forEach((p, i) => setTimeout(() => A.bell(p as 0 | 1 | 2, 0.05), 300 + i * 650)); } if (!nearT) tabletHeard = false; }
 
-      if (Math.floor(clock.time * 5) !== Math.floor((clock.time - dt) * 5)) setHud({ hp: player.hp, coins: st.totalCoins + st.wCoins, sheep: world.rescued, solved: world.solved, deaths: st.deaths });
+      // Particles, capped so long sessions do not grow memory.
+      pT -= dt; if (pT <= 0 && world.particles.length < 300) { const kk = def.pType; pT = kk === 'mist' ? 0.45 : 0.07; if (kk === 'snow') world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -18 - world.threat.level * 120 + Math.random() * 8, vy: 40 + Math.random() * 30, life: 6, max: 6, size: 2 + Math.random() * 2, color: pal.particle, kind: 'snow' }); if (kk === 'leaf' && Math.random() < 0.35) world.particles.push({ x: cx + Math.random() * W, y: cy - 10, vx: -25 + Math.random() * 25, vy: 25 + Math.random() * 15, life: 7, max: 7, size: 3 + Math.random() * 2, color: pal.particle, kind: 'leaf' }); if (kk === 'mist') world.particles.push({ x: cx + Math.random() * W, y: cy + H * 0.7 + Math.random() * 120, vx: 30 + Math.random() * 20, vy: 0, life: 5, max: 5, size: 30 + Math.random() * 20, color: pal.particle, kind: 'mist' }); }
+      for (let i = world.particles.length - 1; i >= 0; i--) { const p = world.particles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; if (p.kind === 'leaf') p.vx += Math.sin(p.life * 4) * 18 * dt; if (p.kind === 'dust' || p.kind === 'splash' || p.kind === 'spark') p.vy += 500 * dt; if (p.life <= 0) world.particles.splice(i, 1); }
+
+      // Animation and footsteps.
+      if (player.dashT <= 0 && player.punchT <= 0 && player.state !== 'calm') { if (!player.grounded) player.state = player.vy < 0 ? 'jump' : 'fall'; else if (move.pushed) { player.state = 'push'; player.anim += dt * 8; } else if (Math.abs(player.vx) > 10) { const sp = Math.abs(player.vx) / PHYS.maxSpeed; player.state = sp > 0.6 ? 'run' : 'walk'; player.anim += dt * 14 * sp; player.stepT += dt * sp; if (player.stepT > 0.26) { A.step(surfaceOf(def.id, standing)); player.stepT = 0; if (Math.random() < 0.4) burst(player.x, player.y, def.id === 'snow' ? '#eef5f8' : '#9a8a6a', 1, 'dust'); } } else { player.state = 'idle'; player.anim += dt; player.stepT = 0; } }
+
+      if (Math.floor(clock.time * 5) !== Math.floor((clock.time - dt) * 5)) setHud({ hp: player.hp, coins: st.totalCoins + st.wCoins, sheep: world.rescued, solved: world.solved, deaths: st.deaths, stones: player.rockN, goal: objective(world, player.x), threat: world.threat.phase === 'warning' || world.threat.phase === 'active' ? (def.flood ? 'floodWarn' : 'avalanche') : '' });
     };
     const render = (time: number, alpha: number) => {
-      const cx = Math.round(st.camX), cy = Math.round(st.camY), mp = world.mplatforms;
-      const solids = [...world.platforms.filter(p => !(p.type === 'break' && p.broken)), ...mp, ...world.elevators, ...world.doors.filter(d => !d.open), ...world.boxes, ...world.bridges.map(bridgeSolid)];
-      // ===== RENDER =====
+      const sx = shakeT > 0 && shakeRef.current && !motionRef.current ? (Math.random() - 0.5) * 8 * Math.min(1, shakeT) : 0;
+      const cx = Math.round(st.camX + sx), cy = Math.round(st.camY), mp = world.mplatforms;
+      const solids = [...world.platforms.filter(p => !p.broken), ...mp, ...world.elevators, ...world.floaters, ...world.doors.filter(d => !d.open), ...world.boxes, ...world.bridges.map(bridgeSolid)];
       ctx.clearRect(0, 0, W, H);
-      drawSky(ctx, cx, pal, def.id); drawMountains(ctx, cx, pal);
-      if (def.id === 'snow') { [200, 850, 1750, 2650, 3550].forEach((px, i) => { ctx.fillStyle = '#dce8f0'; ctx.beginPath(); ctx.moveTo(px - cx * 0.22, H); ctx.lineTo(px - cx * 0.22 + 80, H - 210 - (i % 2) * 40); ctx.lineTo(px - cx * 0.22 + 160, H); ctx.fill(); }); }
+      drawSky(ctx, cx, pal, def.id);
+      // Distant snow peaks sit behind the mountain layers, so they never read as foreground ice.
+      if (def.id === 'snow') { ctx.globalAlpha = 0.45; [200, 850, 1750, 2650, 3550].forEach((px, i) => { const x = px - cx * 0.08; ctx.fillStyle = '#c9dbe6'; ctx.beginPath(); ctx.moveTo(x - 40, H - 150); ctx.lineTo(x + 70, H - 330 - (i % 2) * 40); ctx.lineTo(x + 180, H - 150); ctx.fill(); }); ctx.globalAlpha = 1; }
+      drawMountains(ctx, cx, pal);
       drawFog(ctx, cx, cy, pal, motionRef.current ? 0 : 1 + world.threat.level * 0.6);
       ctx.save(); ctx.translate(-cx, -cy);
-      // cedar trees anchored to actual platforms (no floating)
-      if (def.id === 'cedar') { [380, 760, 1450, 2200, 2900, 3600, 4200].forEach((tx, i) => { const base = topAt(world.platforms, tx, 12); if (base !== null) cedar(ctx, tx, base, 170 + (i % 2) * 35, i % 2 ? '#214a36' : '#2c5a3e'); }); }
-      // River haze stays behind the banks, actors, and water surface.
-      if (!motionRef.current) for (const p of world.particles) {
-        if (p.kind !== 'mist') continue;
-        ctx.globalAlpha = Math.sin(Math.PI * cl(p.life / p.max, 0, 1)) * 0.035;
-        ctx.fillStyle = p.color; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.size * 2.8, p.size * 0.22, 0, 0, Math.PI * 2); ctx.fill();
-      }
+      if (def.id === 'cedar') { [380, 1450, 2200, 2900, 3600, 4300].forEach((tx, i) => { const base = topAt(world.platforms.filter(p => p.type === 'ground'), tx, 12); if (base !== null) cedar(ctx, tx, base, 170 + (i % 2) * 35, i % 2 ? '#214a36' : '#2c5a3e'); }); }
+      if (!motionRef.current) for (const p of world.particles) { if (p.kind !== 'mist') continue; ctx.globalAlpha = Math.sin(Math.PI * cl(p.life / p.max, 0, 1)) * 0.035; ctx.fillStyle = p.color; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.size * 2.8, p.size * 0.22, 0, 0, Math.PI * 2); ctx.fill(); }
       ctx.globalAlpha = 1;
       for (const h of world.hazards) drawHazard(ctx, h, time);
-      for (const p of world.platforms) { if (p.type === 'break' && p.broken && (p.breakT ?? 0) <= 0) continue; drawPlatform(ctx, p, pal, def.id); }
-      for (const m of mp) { ctx.fillStyle = pal.accent; ctx.fillRect(Math.round(m.x), Math.round(m.y), m.w, m.h); ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(Math.round(m.x), Math.round(m.y), m.w, 4); }
-      // elevators: wooden platform on a vertical rail, linked to a weight plate
+      for (const p of world.platforms) drawPlatform(ctx, p, pal, def.id);
+      for (const d of world.decor) drawDecor(ctx, d, time, { bellPulse: time / 800 });
+      for (const f of world.floaters) drawFloater(ctx, f);
+      for (const m of mp) { ctx.fillStyle = '#5a3c22'; ctx.beginPath(); ctx.roundRect(Math.round(m.x), Math.round(m.y), m.w, m.h, 6); ctx.fill(); ctx.fillStyle = '#8a644066'; ctx.fillRect(Math.round(m.x + 6), Math.round(m.y + 3), m.w - 12, 2); }
       for (const ev of world.elevators) {
         ctx.strokeStyle = '#4a3a24'; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.moveTo(ev.x - 4, ev.baseY); ctx.lineTo(ev.x - 4, ev.topY); ctx.moveTo(ev.x + ev.w + 4, ev.baseY); ctx.lineTo(ev.x + ev.w + 4, ev.topY); ctx.stroke();
-        const plate = world.plates.find(p => p.id === ev.plateId); if (plate) { ctx.beginPath(); ctx.moveTo(plate.x + plate.w / 2, plate.y); ctx.lineTo(plate.x + plate.w / 2, ev.topY - 30); ctx.lineTo(ev.x + ev.w / 2, ev.topY - 30); ctx.lineTo(ev.x + ev.w / 2, ev.y); ctx.stroke(); }
+        const plate = world.plates.find(p => p.id === ev.plateId); if (plate) { ctx.strokeStyle = '#c9a463'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(plate.x + plate.w / 2, plate.y); ctx.lineTo(plate.x + plate.w / 2, ev.topY - 30); ctx.lineTo(ev.x + ev.w / 2, ev.topY - 30); ctx.lineTo(ev.x + ev.w / 2, ev.y); ctx.stroke(); ctx.fillStyle = '#4a3a24'; ctx.beginPath(); ctx.arc(plate.x + plate.w / 2, ev.topY - 30, 6, 0, Math.PI * 2); ctx.arc(ev.x + ev.w / 2, ev.topY - 30, 6, 0, Math.PI * 2); ctx.fill(); }
         ctx.fillStyle = '#795330'; ctx.fillRect(Math.round(ev.x), Math.round(ev.y), ev.w, ev.h);
         ctx.fillStyle = '#9a7042'; ctx.fillRect(Math.round(ev.x + 3), Math.round(ev.y + 3), ev.w - 6, 3);
-        ctx.fillStyle = '#5a3a20'; ctx.fillRect(Math.round(ev.x + ev.w / 2 - 2), Math.round(ev.y), 4, ev.h);
       }
-      // visible mechanical cable tells the player exactly what a distant target controls
-      for (const l of world.levers) { if (l.bridgeId !== undefined) { const br = world.bridges.find((b: Bridge) => b.id === l.bridgeId); if (br) { ctx.strokeStyle = 'rgba(212,168,87,0.45)'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(l.x, l.y - 22); ctx.lineTo(br.x, br.y); ctx.stroke(); ctx.setLineDash([]); } } }
+      for (const l of world.levers) { if (l.bridgeId !== undefined && l.bell === undefined) { const br = world.bridges.find((b: Bridge) => b.id === l.bridgeId); if (br) { ctx.strokeStyle = 'rgba(212,168,87,0.55)'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(l.x, l.y - 22); ctx.lineTo(br.x, br.y - 6); ctx.stroke(); ctx.setLineDash([]); } } if (l.lid >= 0 && l.target) { const d = world.doors.find(v => v.id === l.lid); if (d && !d.open) { ctx.strokeStyle = 'rgba(212,168,87,0.55)'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(l.x, l.y - 22); ctx.lineTo(d.x + d.w / 2, d.y + 12); ctx.stroke(); ctx.setLineDash([]); } } }
       for (const b of world.bridges) { drawBridge(ctx, b); if (b.progress < 1) { ctx.fillStyle = '#604932'; ctx.fillRect(b.x - b.h / 2, b.y, b.h, H + 200 - b.y); } }
-      for (const l of world.levers) drawLever(ctx, l);
+      for (const l of world.levers) { if (l.bell !== undefined) drawBell(ctx, l, ringT[l.id] ?? 0); else drawLever(ctx, l); }
       for (const pl of world.plates) drawPlate(ctx, pl);
-      for (const d of world.doors) {
-        const ctrl = world.levers.find((l: Lever) => l.lid === d.id); const plateCtrl = world.plates.find((p: Plate) => p.lid === d.id);
-        const glyph = ctrl?.seq ? String(ctrl.seq) : ctrl?.timed ? '⏱' : plateCtrl ? '⚖' : '';
-        drawDoor(ctx, d, glyph);
-        if (d.timer !== undefined) { ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${Math.max(0, d.timer).toFixed(1)}s`, d.x + d.w / 2, Math.max(70, d.y - 8)); }
-      }
+      for (const s of world.sluices) drawSluice(ctx, s, time);
+      for (const d of world.doors) drawDoor(ctx, d);
       for (const c of world.checkpoints) drawCheck(ctx, c);
       for (const c of world.coins) { if (c.got) continue; const by = c.y + Math.sin(c.bob * 3) * 4; ctx.fillStyle = pal.accent; ctx.beginPath(); ctx.arc(c.x, by, 7, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.arc(c.x - 2, by - 2, 2.5, 0, Math.PI * 2); ctx.fill(); }
-      for (const s of world.sheep) if (!s.rescued) drawSheep(ctx, s);
+      for (const s of world.sheep) drawSheep(ctx, s, time);
       for (const r of world.rocks) { ctx.fillStyle = '#7a7060'; ctx.beginPath(); ctx.arc(Math.round(r.x), Math.round(r.y), Math.round(r.r), 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#9a9080'; ctx.beginPath(); ctx.arc(Math.round(r.x - 2), Math.round(r.y - 2), 2, 0, Math.PI * 2); ctx.fill(); }
-      for (const b of world.boxes) { ctx.fillStyle = '#6a4a30'; ctx.fillRect(Math.round(b.x), Math.round(b.y), b.w, b.h); ctx.fillStyle = '#8a6a4a'; ctx.fillRect(Math.round(b.x + 4), Math.round(b.y + 4), b.w - 8, b.h - 8); ctx.strokeStyle = '#4a2e1c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + b.w, b.y + b.h); ctx.moveTo(b.x + b.w, b.y); ctx.lineTo(b.x, b.y + b.h); ctx.stroke(); }
+      for (const b of world.boxes) { ctx.fillStyle = '#6a4a30'; ctx.fillRect(Math.round(b.x), Math.round(b.y), b.w, b.h); ctx.fillStyle = '#8a6a4a'; ctx.fillRect(Math.round(b.x + 4), Math.round(b.y + 4), b.w - 8, b.h - 8); ctx.strokeStyle = '#4a2e1c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + b.w, b.y + b.h); ctx.moveTo(b.x + b.w, b.y); ctx.lineTo(b.x, b.y + b.h); ctx.stroke(); ctx.fillStyle = '#e2c27a'; ctx.fillRect(Math.round(b.x + b.w / 2 - 6), Math.round(b.y - 2), 12, 3); }
       for (const hb of world.hanging) { if (!hb.hit) { ctx.strokeStyle = '#6a5a4a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(hb.x + hb.w / 2, hb.y - 70); ctx.lineTo(hb.x + hb.w / 2, hb.y); ctx.stroke(); ctx.fillStyle = '#5a3a2a'; ctx.fillRect(Math.round(hb.x), Math.round(hb.y), hb.w, hb.h); } }
-      for (const e of world.enemies) { if (e.state === 'dead' && e.deadT <= 0) continue; drawEnemy(ctx, e); }
-      for (const p of world.projectiles) drawProj(ctx, p);
+      for (const e of world.enemies) { if (e.state === 'dead' && e.deadT <= 0) continue; const g = e.type === 'eagle' ? topAt(world.platforms, (e.diveX ?? e.x) + e.w / 2) ?? GY : e.y + e.h; drawAnimalCue(ctx, e, g, time); drawEnemy(ctx, e); }
       if (def.portal.w > 0) drawPortal(ctx, def.portal, time, pal, world.opened);
+      for (const s of world.shelters) drawShelterHint(ctx, s, time, world.threat.phase === 'warning' || world.threat.phase === 'active');
       drawPlayer(ctx, { ...player, x: (player.prevX ?? player.x) + (player.x - (player.prevX ?? player.x)) * alpha, y: (player.prevY ?? player.y) + (player.y - (player.prevY ?? player.y)) * alpha }, solids);
+      if (world.flood && world.flood.y < world.flood.bottom) drawHazard(ctx, { x: world.flood.x, y: world.flood.y, w: world.flood.w, h: world.flood.bottom - world.flood.y, type: 'water' }, time);
+      if (world.flood && world.threat.phase !== 'calm') { ctx.strokeStyle = '#eaf6ef'; ctx.lineWidth = 2; for (const y of [world.flood.endY, GY]) { ctx.beginPath(); ctx.moveTo(world.flood.x + 6, y); ctx.lineTo(world.flood.x + 22, y); ctx.stroke(); } }
       for (const p of motionRef.current ? [] : world.particles) { if (p.kind === 'mist') continue; ctx.globalAlpha = Math.max(0, p.life / p.max); ctx.fillStyle = p.color; ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size); }
       ctx.globalAlpha = 1; ctx.restore();
-      // Avalanche is visible, telegraphed, and escapable; checkpoints act as shelters.
-      if (def.id === 'snow' && world.threat.phase === 'warning') {
-        const pulse = 0.35 + Math.sin(time / 160) * 0.18;
-        ctx.fillStyle = `rgba(220,240,250,${pulse})`; ctx.fillRect(0, 0, W, 5);
-        ctx.fillStyle = '#e0f2fe'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(text(lang, 'avalanche'), W / 2, 92);
-      }
-      if (def.id === 'snow' && world.threat.phase === 'active') {
+      if (def.avalanche && world.threat.phase === 'warning') { const pulse = 0.35 + Math.sin(time / 160) * 0.18; ctx.fillStyle = `rgba(220,240,250,${pulse})`; ctx.fillRect(0, 0, W, 5); ctx.fillRect(0, 0, 5, H); }
+      if (def.avalanche && world.threat.phase === 'active') {
         const fx = world.threat.frontX - cx;
         const grad = ctx.createLinearGradient(Math.max(0, fx - 230), 0, fx + 30, 0);
-        grad.addColorStop(0, 'rgba(210,232,244,0.2)'); grad.addColorStop(1, 'rgba(245,252,255,0.92)');
+        grad.addColorStop(0, 'rgba(210,232,244,0.25)'); grad.addColorStop(1, 'rgba(245,252,255,0.94)');
         ctx.fillStyle = grad; ctx.fillRect(0, 0, Math.max(0, fx + 30), H);
         ctx.fillStyle = 'rgba(245,252,255,0.9)';
         for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.arc(fx - (i % 3) * 18, H - 70 - Math.floor(i / 3) * 35 + Math.sin(time / 90 + i) * 8, 45 + (i % 2) * 18, 0, Math.PI * 2); ctx.fill(); }
       }
-      // threat vignette
-      if (world.threat.level > 0.3) { ctx.fillStyle = `rgba(0,0,0,${world.threat.level * 0.18})`; ctx.fillRect(0, 0, W, H); }
-      // contextual puzzle affordances: clear goal, no pixel-hunt ambiguity
-      const nearTarget = world.levers.find((l: Lever) => l.target && !l.on && Math.abs(player.x - l.x) < 360);
-      const nearPlate = world.plates.find((pl: Plate) => !pl.solved && Math.abs(player.x - pl.x) < 250);
-      const nextSeq = world.levers.find((l: Lever) => l.seq === world.seqProgress + 1 && !l.on && Math.abs(player.x - l.x) < 280);
-      if (world.seqFailed || nearTarget || nearPlate || nextSeq) {
-        const msg = world.seqFailed ? text(lang, 'sequenceWrong') : nearTarget ? text(lang, 'targetHint') : nearPlate ? text(lang, 'plateHint') : `${text(lang, 'sequenceHint')}: ${nextSeq?.seq}`;
-        ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(100, H - 76, W - 200, 30);
-        ctx.fillStyle = '#f5e6c8'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(msg, W / 2, H - 58);
+      if (world.threat.phase === 'warning' || world.threat.phase === 'active') { ctx.fillStyle = `rgba(0,0,0,${0.08 + world.threat.level * 0.1})`; ctx.fillRect(0, 0, W, H); }
+      // One contextual line at a time: a death cause, a story beat, a hint, or the nearest interaction.
+      let msg = world.messageT > 0 ? text(lang, world.message) : '';
+      if (!msg) {
+        const sheep = world.sheep.find(s => !s.rescued && Math.abs(s.x - player.x) < 150 && Math.abs(s.y - player.y) < 120);
+        const plate = world.plates.find(p => p.need !== undefined && !p.solved && Math.abs(player.x - (p.x + p.w / 2)) < 70);
+        if (sheep) msg = text(lang, sheep.state === 'fear' ? 'sheepAfraid' : 'calmSheep');
+        else if (plate) msg = text(lang, 'placeStone');
+        else if (world.sluices.some(s => Math.abs(player.x - s.x) < 60)) msg = text(lang, 'sluiceUse');
+        else if (world.levers.some(l => l.bell !== undefined && Math.abs(player.x - l.x) < 40)) msg = text(lang, 'bellUse');
+        else if (def.portal.w > 0 && Math.abs(player.x - def.portal.x) < 160) {
+          const sheepLeft = def.goalS - world.rescued, puzzlesLeft = def.goalP - world.solved;
+          msg = sheepLeft <= 0 && puzzlesLeft <= 0 ? text(lang, 'allDone') : `${text(lang, 'remaining')}: ${text(lang, 'sheep')} ${Math.max(0, sheepLeft)} · ${text(lang, 'puzzles')} ${Math.max(0, puzzlesLeft)} — ${text(lang, 'leaveAnyway')}`;
+        }
       }
-      // progress hint near portal (encouraging, not blocking)
-      if (def.portal.w > 0 && Math.abs(player.x - def.portal.x) < 130) {
-        const pct = Math.min(100, Math.round(((world.rescued / def.goalS) + (world.solved / def.goalP)) / 2 * 100));
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W / 2 - 140, H - 48, 280, 30);
-        ctx.fillStyle = pct >= 100 ? '#34d399' : '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(`${text(lang, 'progress')}: ${pct}% · ${text(lang, 'exit')}`, W / 2, H - 30);
-      }
-
+      if (msg) { ctx.font = 'bold 13px system-ui'; const w = Math.min(W - 80, ctx.measureText(msg).width + 40); ctx.fillStyle = 'rgba(8,22,20,0.72)'; ctx.fillRect(W / 2 - w / 2, H - 64, w, 32); ctx.fillStyle = '#f5e6c8'; ctx.textAlign = 'center'; ctx.fillText(msg, W / 2, H - 43, W - 100); }
     };
     const frame = (time: number) => {
       const seconds = (time - last) / 1000; last = time;
-      if (seconds > 0.5) { persist(); setScreen('paused'); A.pause(); return; }
+      if (seconds > 0.5) { persist(); openPause(); return; }
       clock.advance(seconds, tick);
       if (stopped) return;
       render(motionRef.current ? 0 : time, clock.debt * 60);
@@ -910,7 +829,7 @@ export default function App() {
     return () => { window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); pressed.clear(); held.current.clear(); pendingActions.current.clear(); player.charging = false; player.power = 0; cancelAnimationFrame(raf); };
   }, [screen, wi, bindings, lang]);
 
-  const settings = <Settings lang={lang} music={musicVolume} sfx={sfxVolume} motion={reducedMotion} large={large} challenge={challenge} bindings={bindings} onMusic={setMusicVolume} onSfx={setSfxVolume} onMotion={setReducedMotion} onLarge={setLarge} onChallenge={setChallenge} onBindings={setBindings} />;
+  const settings = <Settings lang={lang} music={musicVolume} sfx={sfxVolume} motion={reducedMotion} large={large} challenge={challenge} shake={shake} touchSize={touchSize} touchOpacity={touchOpacity} bindings={bindings} onMusic={setMusicVolume} onSfx={setSfxVolume} onMotion={setReducedMotion} onLarge={setLarge} onChallenge={setChallenge} onShake={setShake} onTouchSize={setTouchSize} onTouchOpacity={setTouchOpacity} onBindings={setBindings} />;
   const shell = (content: React.ReactNode) => <main className={`app-shell screen-${screen} ${large ? 'large-text' : ''} ${reducedMotion ? 'reduced-motion' : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>{notice && <p className="notice" role="status">{t(notice)}</p>}{content}</main>;
   const exportSave = () => { const url = URL.createObjectURL(new Blob([JSON.stringify(saveRef.current, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'amksa-save.json'; a.click(); URL.revokeObjectURL(url); };
   const saveTools = <div className="save-tools"><button onClick={exportSave}>{t('export')}</button><label className="file-button">{t('import')}<input type="file" accept="application/json,.json" onChange={async e => { const file = e.target.files?.[0]; if (!file || file.size > 100000) { setNotice('importFailed'); return; } const value = parseSave(await file.text()); if (!value) { setNotice('importFailed'); return; } if (!writeSave(browserStorage, value)) { setNotice('saveFailed'); return; } saveRef.current = value; setHasSave(true); setNotice('imported'); }} /></label></div>;
@@ -933,21 +852,21 @@ export default function App() {
     <ol className="journey-route" aria-label={t('landscape')}>{(['cedar', 'pasture', 'gorge', 'snow']).map((id, i) => <li key={id}><span aria-hidden="true">0{i + 1}</span><span>{t(id)}</span><i aria-hidden="true" /></li>)}</ol>
     <footer className="title-footer"><p>{t('policy')}</p>{saveTools}</footer>
   </section>);
-  if (screen === 'intro') return shell(<section className="panel" data-testid="intro-screen"><p className="eyebrow">AMKSA</p><h1>{t('title')}</h1><p className="story">{STORY[storyIdx][lang]}</p><progress value={storyIdx + 1} max={STORY.length} aria-label={t('progress')} /><div className="actions"><button onClick={() => setScreen('transition')} data-testid="skip-intro">{t('skip')}</button><button className="primary" onClick={() => storyIdx < STORY.length - 1 ? setStoryIdx(i => i + 1) : setScreen('transition')}>{t('next')}</button></div></section>);
+  if (screen === 'intro') return shell(<section className="panel scene-panel" data-testid="intro-screen"><canvas ref={sceneRef} width={W} height={H} className="scene-canvas" role="img" aria-label={t(PROLOGUE[storyIdx])} /><p className="eyebrow">AMKSA · {storyIdx + 1} / {PROLOGUE.length}</p><p className="story" aria-live="polite">{t(PROLOGUE[storyIdx])}</p><progress value={storyIdx + 1} max={PROLOGUE.length} aria-label={t('progress')} /><div className="actions"><button onClick={() => setScreen('transition')} data-testid="skip-intro">{t('skip')}</button><button className="primary" data-testid="next-intro" onClick={() => storyIdx < PROLOGUE.length - 1 ? setStoryIdx(i => i + 1) : setScreen('transition')}>{t('next')}</button></div></section>);
   if (screen === 'transition') return shell(<section className="panel"><h1>{t(MOODS[wi])}</h1><p>{wi + 1} / 4</p></section>);
-  if (screen === 'puzzle' && activePuzzle) return shell(<PuzzlePanel key={activePuzzle.id} puzzle={activePuzzle} lang={lang} onBack={() => { setScreen('playing'); setActivePuzzle(null); }} onSolve={() => { const w = S.current?.world; const l = w?.levers.find(v => v.id === puzzleLever); if (w && l) activate(w, l, 'puzzle'); persist(); A.task(); setActivePuzzle(null); setScreen('playing'); }} />);
+  if (screen === 'puzzle' && activePuzzle) return shell(<PuzzlePanel key={activePuzzle.id} puzzle={activePuzzle} lang={lang} onBack={() => { setScreen('playing'); setActivePuzzle(null); }} onSolve={() => { const w = S.current?.world; const l = w?.levers.find(v => v.id === puzzleLever); if (w && l && activate(w, l, 'puzzle') === 'activated' && l.optional && S.current) S.current.wCoins += 5; persist(); A.task(); setActivePuzzle(null); setScreen('playing'); }} />);
   if (screen === 'complete') {
-    const rescued = WORLDS.reduce((n, f) => { const d = f(); return n + d.sheep.filter(s => saveRef.current.rooms[d.id]?.sheep.includes(s.id)).length; }, 0);
-    const total = WORLDS.reduce((n, f) => n + f().sheep.length, 0);
-    return shell(<section className="panel" data-testid="journey-result"><p className="eyebrow">AMKSA</p><h1>{t('finish')}</h1><p className="lead" data-testid="ending-message">{t(ending(rescued, total))}</p><p>{t('sheep')}: {rescued} / {total}</p><p>{t('coins')}: {totalCoins}</p><button className="primary" onClick={() => setScreen('title')}>{t('back')}</button></section>);
+    const total = WORLDS.reduce((n, f) => n + f().sheep.length, 0), rescued = endRescued, kind = ending(rescued, total);
+    return shell(<section className="panel scene-panel" data-testid="journey-result"><canvas ref={sceneRef} width={W} height={H} className="scene-canvas" role="img" aria-label={t(kind === 'all' ? 'endingAll' : kind === 'some' ? 'endingSome' : 'endingNone')} /><p className="eyebrow">AMKSA</p><h1>{t('finish')}</h1><p className="lead" data-testid="ending-message">{t(kind === 'all' ? 'endingAll' : kind === 'some' ? 'endingSome' : 'endingNone')}</p><p>{t('sheep')}: <span dir="ltr">{rescued} / {total}</span></p><p>{t('coins')}: {totalCoins}</p><button className="primary" onClick={() => setScreen('title')}>{t('replayChapters')}</button></section>);
   }
   if (screen === 'reset') return shell(<section className="panel"><h1>{t('resetTitle')}</h1><p>{t('challenge')}</p><button className="primary" onClick={() => { const id = WORLDS[wi]().id; const previous = saveRef.current.rooms[id]; if (previous) saveRef.current.rooms[id] = { ...previous, checkpoint: 0, awards: [], levers: [], doors: [], bridges: [], seqProgress: 0, seqSolved: false }; setTotalCoins(saveRef.current.coins); writeSave(browserStorage, saveRef.current); S.current = null; setScreen('transition'); }}>{t('start')}</button><button onClick={() => setScreen('title')}>{t('back')}</button></section>);
-  const touch = (action: Action) => <button key={action} aria-label={t(action)} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); held.current.add(action); pendingActions.current.add(action); }} onPointerUp={() => held.current.delete(action)} onPointerCancel={() => held.current.delete(action)} onLostPointerCapture={() => held.current.delete(action)}>{t(action)}</button>;
+  const touch = (action: Action) => <button key={action} className={`touch-${action}`} aria-label={t(action)} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); held.current.add(action); pendingActions.current.add(action); }} onPointerUp={() => held.current.delete(action)} onPointerCancel={() => held.current.delete(action)} onLostPointerCapture={() => held.current.delete(action)}>{t(action)}</button>;
   const def = S.current?.world.def;
   return shell(<div className="game-layout" data-testid={screen === 'paused' ? 'paused-screen' : 'playing-screen'}>
-    <header className="hud"><strong><small>AMKSA · 0{wi + 1}</small>{t(MOODS[wi])}</strong><span className="health-stat"><small>{t('health')}</small><b role="img" aria-label={`${t('health')}: ${hud.hp}/3`}>{Array.from({ length: 3 }, (_, i) => <i key={i} className={i < hud.hp ? 'heart active' : 'heart'} aria-hidden="true">♥</i>)}</b></span><span><small>{t('sheep')}</small><b dir="ltr">{hud.sheep}<em> / {def?.goalS}</em></b></span><span><small>{t('puzzles')}</small><b dir="ltr">{hud.solved}<em> / {def?.goalP}</em></b></span><span><small>{t('coins')}</small><b>{hud.coins}</b></span><span className="deaths-stat"><small>{t('deaths')}</small><b>{hud.deaths}</b></span><button data-testid="pause-game" onClick={() => { persist(); held.current.clear(); A.pause(); setScreen('paused'); }}>{t('pause')}</button></header>
-    <div className="game-frame"><canvas ref={ref} width={W} height={H} aria-label={t('title')} data-testid="game-canvas" />{screen === 'paused' && <div className="pause-overlay"><section className="panel" role="dialog" aria-modal="true" aria-label={t('paused')}><h1>{t('paused')}</h1><div className="actions"><button className="primary" onClick={() => { A.resume(); setScreen('playing'); }}>{t('resume')}</button><button onClick={resetRoom}>{t('reset')}</button><button onClick={() => { persist(); setTotalCoins(saveRef.current.coins); setScreen('title'); }}>{t('menu')}</button></div>{settings}<p>{t('policy')}</p></section></div>}</div>
+    <header className="hud"><strong><small>AMKSA · 0{wi + 1}</small>{t(MOODS[wi])}</strong><span className="health-stat"><small>{t('health')}</small><b role="img" aria-label={`${t('health')}: ${hud.hp}/3`}>{Array.from({ length: 3 }, (_, i) => <i key={i} className={i < hud.hp ? 'heart active' : 'heart'} aria-hidden="true">♥</i>)}</b></span><span><small>{t('sheep')}</small><b dir="ltr">{hud.sheep}<em> / {def?.goalS}</em></b></span><span><small>{t('puzzles')}</small><b dir="ltr">{hud.solved}<em> / {def?.goalP}</em></b></span><span><small>{t('stones')}</small><b dir="ltr" data-testid="stones">{hud.stones}<em> / 4</em></b></span><span className="coins-stat"><small>{t('coins')}</small><b>{hud.coins}</b></span><button data-testid="pause-game" onClick={() => { persist(); held.current.clear(); openPause(); }}>{t('pause')}</button></header>
+    <p className="objective" data-testid="objective"><small>{t('objective')}</small>{hud.goal ? t(hud.goal) : ''}{hud.threat && <b className="threat" role="alert">{t(hud.threat)}</b>}<span className="hint-key">{t('hintKey')}</span></p>
+    <div className="game-frame"><canvas ref={ref} width={W} height={H} aria-label={t('title')} data-testid="game-canvas" />{screen === 'paused' && <div className="pause-overlay"><section className="panel" role="dialog" aria-modal="true" aria-label={t('paused')}><h1>{t('paused')}</h1><FlockBells lang={lang} rooms={saveRef.current.rooms} /><div className="actions"><button className="primary" onClick={() => { A.resume(); setScreen('playing'); }}>{t('resume')}</button><button onClick={resetRoom}>{t('restartRoom')}</button><button onClick={() => { persist(); setTotalCoins(saveRef.current.coins); setScreen('title'); }}>{t('menu')}</button></div><HintPanel lang={lang} hints={hintRoom} tier={hintTier} onReveal={revealHint} />{settings}<p>{t('policy')}</p></section></div>}</div>
     <p className="controls-help">{t('controls')} {t('rockCache')}</p>
-    {screen === 'playing' && <div className="touch-controls" data-testid="touch-controls">{(['left', 'right', 'jump', 'interact', 'aim', 'up', 'down', 'quick', 'dash', 'punch'] as Action[]).map(touch)}</div>}
+    {screen === 'playing' && <div className={`touch-controls touch-${touchSize}`} style={{ opacity: touchOpacity }} data-testid="touch-controls">{(['left', 'right', 'jump', 'interact', 'aim', 'up', 'down', 'quick', 'dash', 'punch', 'hint'] as Action[]).map(touch)}</div>}
   </div>);
 }

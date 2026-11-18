@@ -4,10 +4,11 @@ Baseline: `a11bb5440b7e3e867bc5d15fbb0a315f957d31a4`.
 The original App.tsx SHA-256 is `e05f388f91bc3a21e8b3734fe05bdde44aa33ee27d6ddb62108e83b97cffd75c`.
 
 This ledger distinguishes implementation from acceptance. A code repair is not proof of an uninterrupted journey.
-The task environment prohibits local project checks. The supplied CI template defines the checks listed below.
+The master blueprint session ran the project checks locally: type check, unit and route tests, world audit, build and the Chromium browser suite. See `docs/design/implementation-report.md`.
+The supplied CI template defines the same checks for CI.
 GitHub rejected workflow creation because the integration lacks `workflows` permission.
 A maintainer must install `docs/ci/game-checks.yml` as `.github/workflows/ci.yml` before CI can execute these checks.
-Tests in this branch are regression cases, not reported passing results until CI completes them.
+Local results are recorded in the implementation report. CI results still require the workflow installation.
 
 ## Confirmed programming defects
 
@@ -67,10 +68,23 @@ Tests in this branch are regression cases, not reported passing results until CI
 | TECH-05 | Known baseline, task branch, lockfile, source commits, and a CI template for SHA-named assets. | A release tag follows acceptance, not this repair alone. |
 | TECH-06 | Game-specific README and removal of unused API-key injection. | Dependency, vulnerability, ownership, and license audit. |
 
+## Master blueprint implementation
+
+| Item | Delivered | Still open |
+| --- | --- | --- |
+| BLUEPRINT-01 Puzzle rooms | Language-free in-world rooms in all four worlds. Gates proven closed and solvable by the reachability bot. | Human comprehension tests. |
+| BLUEPRINT-02 Eight sheep | Two per world. Calming, fear and departure states. | Visible arrival at the fold during play. |
+| BLUEPRINT-03 Animals | Notice, warning, attack, recovery and retreat phases. Distraction, hiding and shelters. | Ecology review and animation sheets. |
+| BLUEPRINT-04 Threats | Telegraphed flood and avalanche with tested timing margins. | Timing with new players. |
+| BLUEPRINT-05 Hints and objectives | Three free tiers per room and a live objective line. | Wording review by native speakers. |
+| BLUEPRINT-06 Prologue and ending | Illustrated four-beat prologue and a return-to-the-fold scene that matches rescues. | Art approval. |
+| BLUEPRINT-07 Audio | Music states, ambience, surface footsteps and cues. | Listening review and licensed field recordings. |
+| BUG-26 | Taps shorter than one simulation step were lost. | Keydown now queues the action. A browser test covers it. | Physical keyboards and gamepads. |
+
 ## Required final acceptance
 
 The full acceptance gate is not satisfied by this branch alone.
 No uninterrupted four-world playthrough, final art approval, specialist review, physical device matrix, or final soundtrack enters this repair.
-The four proposed replacement puzzle rooms remain a separate design and production stage.
+The replacement puzzle rooms are now built. Their human playtest remains open.
 Do not describe those items as repaired, approved, or verified.
 See `release-checklist.md` for the release gate.

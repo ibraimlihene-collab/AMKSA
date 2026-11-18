@@ -12,3 +12,8 @@ The recording replaces the procedural music in the introduction and all four wor
 
 The owner supplied no artist credit or separate license document with this upload.
 This provenance note does not assert a license or cultural attribution.
+
+## Music states
+
+`src/game/audio.ts` filters and levels this recording for eight music states and adds a synthesised frame-drum pulse and drone.
+The pulse and drone are Web Audio oscillators and noise. They are not recordings of any instrument or regional performance.

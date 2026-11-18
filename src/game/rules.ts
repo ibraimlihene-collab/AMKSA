@@ -20,13 +20,14 @@ export class FixedClock {
 
 type Mechanism = { id: string; on: boolean; solved?: boolean; puzzleId?: number; target?: boolean; bridgeId?: number; seq?: number; seqMax?: number; lid: number; timed?: number };
 type Machines = {
-  awards: string[]; solved: number; seqProgress: number; seqFailed: boolean; seqSolved: boolean;
+  awards: string[]; solved: number; main?: string[]; seqProgress: number; seqFailed: boolean; seqSolved: boolean;
   levers: Mechanism[]; bridges: { id: number; down: boolean }[];
   doors: { id: number; open: boolean; timer?: number }[];
 };
-export function award(world: { awards: string[]; solved: number }, id: string) {
+/** Records a unique award. Only the world's main puzzles count toward its puzzle goal. */
+export function award(world: { awards: string[]; solved: number; main?: string[] }, id: string) {
   if (world.awards.includes(id)) return false;
-  world.awards.push(id); world.solved = world.awards.length; return true;
+  world.awards.push(id); world.solved = world.main ? world.awards.filter(a => world.main!.includes(a)).length : world.awards.length; return true;
 }
 
 /** Every input, including PuzzleSolved, enters this transition. */
@@ -127,8 +128,9 @@ export function strikeEnemy(world: { killed: number }, player: { x: number; y: n
   return damageEnemy(world, enemy, 1) ? 'killed' : 'hit';
 }
 
-export function bridgeSolid(bridge: Rect & { progress: number }) {
-  if (bridge.progress >= 1) return { x: bridge.x, y: bridge.y, w: bridge.w, h: bridge.h };
+/** A lowered bridge is a deck. Any other state is a full-height barrier at the hinge. */
+export function bridgeSolid(bridge: Rect & { progress: number; hinge?: 'left' | 'right' }) {
+  if (bridge.progress >= 1) return { x: bridge.hinge === 'right' ? bridge.x - bridge.w : bridge.x, y: bridge.y, w: bridge.w, h: bridge.h };
   const top = bridge.y + bridge.h / 2 - bridge.w;
   return { x: bridge.x - bridge.h / 2, y: top, w: bridge.h, h: 776 - top };
 }

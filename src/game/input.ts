@@ -1,4 +1,4 @@
-export const defaultBindings = { left: 'ArrowLeft', right: 'ArrowRight', jump: 'Space', interact: 'KeyE', aim: 'KeyR', quick: 'KeyF', dash: 'ShiftLeft', punch: 'KeyG', up: 'ArrowUp', down: 'ArrowDown' };
+export const defaultBindings = { left: 'ArrowLeft', right: 'ArrowRight', jump: 'Space', interact: 'KeyE', aim: 'KeyR', quick: 'KeyF', dash: 'ShiftLeft', punch: 'KeyG', up: 'ArrowUp', down: 'ArrowDown', hint: 'KeyH' };
 export type Action = keyof typeof defaultBindings;
 export type Bindings = Record<Action, string>;
 export function rebind(bindings: Bindings, action: Action, key: string): Bindings {

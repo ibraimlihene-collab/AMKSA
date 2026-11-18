@@ -5,34 +5,31 @@ import { createWorld, createPlayer, resetResources, snapshot } from '../src/game
 import { auditWorlds } from '../scripts/audit-worlds';
 import { canonicalCode, defaultBindings, rebind } from '../src/game/input';
 
-// BUG-01 and BUG-02: use the real cedar data, not a replacement mechanism.
-test('a stone cannot bypass the cedar puzzle and solving it completes the sequence', () => {
-  const w = createWorld(0), [a, b, c] = w.levers;
-  assert.equal(activate(w, c, 'rock'), 'blocked');
-  assert.equal(c.on, false); assert.equal(w.doors[0].open, false);
-  assert.equal(activate(w, a, 'hand'), 'activated'); assert.equal(activate(w, b, 'rock'), 'activated');
-  assert.equal(activate(w, c, 'hand'), 'puzzle'); assert.equal(w.seqProgress, 2);
-  assert.equal(activate(w, c, 'puzzle'), 'activated');
-  assert.equal(w.seqProgress, 3); assert.equal(w.doors[0].open, true); assert.equal(w.solved, 1);
-  assert.equal(activate(w, c, 'puzzle'), 'unchanged'); assert.equal(w.solved, 1);
+// BUG-01 and BUG-02: a stone never bypasses a panel, and a panel answer enters the same transition.
+test('a stone cannot bypass a mechanism panel and optional panels never count as main puzzles', () => {
+  const w = createWorld(0), panel = w.levers.find(l => l.id === 'cairn-count')!;
+  assert.equal(activate(w, panel, 'rock'), 'blocked'); assert.equal(panel.on, false);
+  assert.equal(activate(w, panel, 'hand'), 'puzzle');
+  assert.equal(activate(w, panel, 'puzzle'), 'activated'); assert.equal(w.solved, 0);
+  assert.equal(activate(w, panel, 'puzzle'), 'unchanged');
 });
-test('sequence mistakes and repeated attempts never duplicate historical credit', () => {
-  const w = createWorld(0);
+test('bell order mistakes reset the attempt and never duplicate historical credit', () => {
+  const w = createWorld(3), bells = [...w.levers].sort((a, b) => a.seq! - b.seq!);
   for (let i = 0; i < 10; i++) {
     w.levers.forEach(l => { l.on = false; }); w.seqProgress = 0;
-    activate(w, w.levers[1], 'hand'); assert.equal(w.seqProgress, 0);
-    w.levers.forEach(l => activate(w, l, l.puzzleId ? 'puzzle' : 'hand'));
+    assert.equal(activate(w, bells[1], 'hand'), 'wrong'); assert.equal(w.seqProgress, 0);
+    bells.forEach(l => activate(w, l, 'hand'));
   }
-  assert.equal(w.solved, 1); assert.deepEqual(w.awards, ['sequence']);
+  assert.equal(w.solved, 1); assert.deepEqual(w.awards, ['sequence']); assert.equal(w.bridges[0].down, true);
 });
 test('timed mechanisms reopen without another award', () => {
-  const w = createWorld(3), l = w.levers[1];
-  activate(w, l, 'puzzle'); l.on = false; w.doors[1].open = false;
-  activate(w, l, 'hand'); assert.equal(w.doors[1].open, true); assert.equal(w.solved, 1);
+  const w = { awards: [] as string[], solved: 0, seqProgress: 0, seqFailed: false, seqSolved: false, bridges: [], doors: [{ id: 1, open: false, timer: undefined as number | undefined }], levers: [{ id: 'gate', on: false, lid: 1, timed: 8, puzzleId: 4 }] };
+  activate(w, w.levers[0], 'puzzle'); w.levers[0].on = false; w.doors[0].open = false;
+  assert.equal(activate(w, w.levers[0], 'hand'), 'activated'); assert.equal(w.doors[0].open, true); assert.equal(w.doors[0].timer, 8); assert.equal(w.solved, 1);
 });
-test('the dynamic elevator plate is absent from unique awards', () => {
+test('the dynamic lift plate is absent from unique awards', () => {
   const w = createWorld(1), restored = createWorld(1, { ...snapshot(w), awards: ['plate-1', 'plate-1'] });
-  assert.equal(restored.solved, 0); assert.equal(award(restored, 'plate-0'), true); assert.equal(award(restored, 'plate-0'), false);
+  assert.equal(restored.solved, 0); assert.equal(award(restored, 'scale'), true); assert.equal(award(restored, 'scale'), false); assert.equal(restored.solved, 1);
 });
 test('simultaneous lethal damage grants one death', () => {
   const w = createWorld(0), e = w.enemies[1];
@@ -71,29 +68,36 @@ test('clock handles delayed frames and excludes tab suspension', () => {
   clock.advance(5, () => { ticks++; }); assert.equal(ticks, 12);
   clock.advance(STEP, () => false); assert.equal(clock.debt, 0);
 });
-test('world snapshots preserve rescues, mechanisms, collected coins and unique credit', () => {
+test('world snapshots preserve rescues, sluice state, bridges, collected coins and unique credit', () => {
   const w = createWorld(2); w.sheep[0].rescued = true; w.coins[0].got = true; w.completionAwarded = true;
-  activate(w, w.levers[0], 'rock'); activate(w, w.levers[1], 'puzzle');
+  activate(w, w.levers.find(l => l.id === 'target-gorge')!, 'rock'); award(w, 'sluice');
   const restored = createWorld(2, snapshot(w));
-  assert.equal(restored.sheep[0].rescued, true); assert.equal(restored.coins[0].got, true); assert.equal(restored.completionAwarded, true);
-  assert.equal(restored.bridges[0].progress, 1); assert.equal(restored.levers[1].solved, true); assert.equal(restored.solved, 2);
+  assert.equal(restored.sheep[0].rescued, true); assert.equal(restored.sheep[0].state, 'gone'); assert.equal(restored.coins[0].got, true); assert.equal(restored.completionAwarded, true);
+  assert.equal(restored.bridges[0].progress, 1); assert.equal(restored.solved, 2); assert.equal(restored.sluices[0].toB, true);
+  assert.equal(restored.hazards.find(h => h.id === 'b2')!.y, 488); assert.equal(restored.hazards.find(h => h.id === 'b1')!.y, 600); assert.equal(restored.floaters[0].y, 478);
 });
-test('an inconsistent save cannot open a protected puzzle gate', () => {
-  const w = createWorld(2), saved = snapshot(w); saved.doors[2].open = true;
-  const l = saved.levers[1]; l.on = true; l.solved = false;
-  const restored = createWorld(2, saved); assert.equal(restored.doors[2].open, false);
+test('an inconsistent save cannot open a protected gate', () => {
+  const w = createWorld(0), saved = snapshot(w); saved.doors[0].open = true;
+  const restored = createWorld(0, saved); assert.equal(restored.doors[0].open, false);
+});
+test('a save cannot invent awards that the room does not offer', () => {
+  const w = createWorld(0), restored = createWorld(0, { ...snapshot(w), awards: ['target-gate', 'made-up', 'scale'] });
+  assert.deepEqual(restored.awards, ['target-gate']); assert.equal(restored.solved, 1);
 });
 test('resource recovery restores lost boxes and rocks without clearing puzzle history', () => {
-  const w = createWorld(1); award(w, 'plate-0'); w.boxes.length = 0; w.rocks.length = 0; resetResources(w);
-  assert.equal(w.boxes.length, 2); assert.equal(w.rocks.length, 4); assert.equal(w.solved, 1);
+  const w = createWorld(1); award(w, 'scale'); w.boxes.length = 0; w.rocks.length = 0; resetResources(w);
+  assert.equal(w.boxes.length, 2); assert.equal(w.rocks.length, 5); assert.equal(w.solved, 1);
 });
 test('each world passes full rectangle spawn, lift shaft and safe exit validation', () => assert.deepEqual(auditWorlds(), []));
-test('endings distinguish no rescues, partial rescues and all nine sheep', () => {
-  assert.equal(ending(0, 9), 'none'); assert.equal(ending(4, 9), 'some'); assert.equal(ending(9, 9), 'all');
+test('endings distinguish no rescues, partial rescues and all eight sheep', () => {
+  assert.equal(ending(0, 8), 'none'); assert.equal(ending(4, 8), 'some'); assert.equal(ending(8, 8), 'all');
+});
+test('the journey has eight main sheep, two in each world, with stable unique IDs', () => {
+  for (let i = 0; i < 4; i++) { const w = createWorld(i); assert.equal(w.sheep.length, 2); assert.equal(w.def.goalS, 2); assert.equal(new Set(w.sheep.map(s => s.id)).size, 2); }
 });
 test('rebinding swaps conflicts and vertical arrows do not jump', () => {
   const keys = rebind(defaultBindings, 'jump', 'ArrowUp');
-  assert.equal(keys.up, 'Space'); assert.equal(canonicalCode('ArrowUp', defaultBindings), 'ArrowUp'); assert.equal(canonicalCode('KeyZ', defaultBindings), '');
+  assert.equal(keys.up, 'Space'); assert.equal(defaultBindings.hint, 'KeyH'); assert.equal(canonicalCode('ArrowUp', defaultBindings), 'ArrowUp'); assert.equal(canonicalCode('KeyZ', defaultBindings), '');
 });
 
 for (const fps of [30, 60, 120]) test(`one punch damages each enemy once at ${fps} Hz`, () => {
@@ -108,4 +112,5 @@ test('bridge entrance stays blocked above and below the deck until it locks', ()
   const b = { x: 1630, y: 410, w: 220, h: 14, progress: 0.5 }, closed = bridgeSolid(b);
   assert.ok(closed.y < 410); assert.ok(closed.y + closed.h > 656);
   const down = bridgeSolid({ ...b, progress: 1 }); assert.equal(down.y, 410); assert.equal(down.h, 14);
+  const right = bridgeSolid({ ...b, progress: 1, hinge: 'right' }); assert.equal(right.x, 1630 - 220);
 });
