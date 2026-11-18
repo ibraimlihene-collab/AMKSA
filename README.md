@@ -84,3 +84,4 @@ The browser suite covers new play, pause, focus loss, save/resume, confirmation,
 
 See [the repair ledger](docs/repair-ledger.md) for defect coverage and remaining acceptance work.
 See [the release checklist](docs/release-checklist.md) before any release tag.
+See [the Arabic master implementation prompt](docs/design/AMKSA_Master_Implementation_Prompt_AR.txt) for the target design, world maps, and phased plan (A–F).
