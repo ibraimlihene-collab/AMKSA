@@ -38,3 +38,19 @@ The correction uses original Canvas instructions and palette values. It adds no 
 Terrain collisions, puzzle rules, stable IDs, saves, and audio playback remain unchanged.
 Full traversal and flood timing still require player acceptance.
 Human art approval, cultural review, and physical-device acceptance remain open.
+
+## Master blueprint additions
+
+All new visuals are original Canvas drawing code in `src/game/art.ts`, `src/game/scenes.ts` and `src/App.tsx`.
+No image, font or sound file was added. No third-party pack or paid asset enters the change.
+
+| Element | Source |
+| --- | --- |
+| Prologue and ending scenes (fold, gate, bell post, flock, shepherd) | `src/game/scenes.ts`, original |
+| Bough canopies, icicle and rock overhangs, cracked ice, ledges | `src/game/art.ts`, original |
+| Sluice gate, floating trunk, bells, carved bell tablet, scales, water marks | `src/game/art.ts`, original |
+| Hoofprints, wool, cairns, grass, eagle shadow, animal state marks | `src/game/art.ts`, original |
+| Sheep head poses, calming ring and departure; shepherd calm and push poses | `src/game/art.ts`, `src/App.tsx`, original |
+
+The bell tablet uses bell sizes and dots. It contains no letters and claims no historical inscription.
+The basin layout from the river correction was replaced by the sluice room. Water still renders only inside its damage rectangle and keeps a fixed bed at y = 700.

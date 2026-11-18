@@ -1,4 +1,4 @@
-import { createWorld, support } from '../src/game/world';
+import { createWorld, support, awardKeys } from '../src/game/world';
 import { WORLDS, PUZZLES } from '../src/game/content';
 import { overlap } from '../src/game/rules';
 
@@ -19,8 +19,14 @@ export function auditWorlds() {
       if (world.platforms.some(p => overlap(shaft, p)) || world.doors.some(d => overlap(shaft, d))) fail(`Lift ${ev.id} has an obstructed shaft.`);
     }
     if (world.portal.w && support(world.platforms, world.portal.x + world.portal.w / 2, world.portal.w) !== world.portal.y + world.portal.h) fail('The exit lacks a walking surface.');
-    const puzzleCount = (world.levers.some(l => l.seq !== undefined) ? 1 : 0) + world.levers.filter(l => l.seq === undefined).length + world.plates.filter(p => p.elevatorId === undefined).length;
-    if (puzzleCount !== def.goalP) fail(`The puzzle goal differs from ${puzzleCount} unique awards.`);
+    if (def.goalP !== def.main.length) fail(`The puzzle goal ${def.goalP} differs from ${def.main.length} main puzzles.`);
+    const keys = awardKeys(world);
+    for (const m of def.main) if (!keys.includes(m)) fail(`Main puzzle ${m} has no mechanism that can award it.`);
+    if (def.sheep.length !== def.goalS) fail('The rescue goal differs from the number of sheep.');
+    for (const room of def.rooms) for (const id of room.done) if (!keys.includes(id) && !world.sheep.some(s => s.id === id)) fail(`Room ${room.id} waits for unknown ${id}.`);
+    for (const f of world.floaters) if (!world.hazards.some(h => h.id === f.basin)) fail(`Floater ${f.id} has no basin.`);
+    for (const s of world.sluices) for (const id of [s.a, s.b]) { const h = world.hazards.find(z => z.id === id); if (!h || h.lowY === undefined || h.highY === undefined) fail(`Sluice ${s.id} feeds an undefined basin.`); }
+    for (const c of world.checkpoints) if (support(world.platforms.filter(p => p.type !== 'crack'), c.x, 40) !== c.y) fail(`Checkpoint at ${c.x} is not on flat, solid ground.`);
     for (const lever of world.levers) {
       if (lever.puzzleId !== undefined && !PUZZLES[lever.puzzleId]) fail(`Lever ${lever.id} has no puzzle.`);
       if (lever.lid >= 0 && !world.doors.some(d => d.id === lever.lid)) fail(`Lever ${lever.id} has no door.`);

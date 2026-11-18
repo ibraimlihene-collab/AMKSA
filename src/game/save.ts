@@ -62,3 +62,21 @@ export const browserStorage: Storage = {
   setItem: (key, value) => globalThis.localStorage.setItem(key, value),
   removeItem: key => globalThis.localStorage.removeItem(key),
 };
+
+/** Language, audio, accessibility and control settings. Stored apart from journey progress so a new journey keeps them. */
+export const SETTINGS_KEY = 'amksa_settings_v1';
+export type Settings = { lang: 'ar' | 'en' | 'fr'; music: number; sfx: number; motion: boolean; large: boolean; challenge: boolean; shake: boolean; touchSize: 'small' | 'medium' | 'large'; touchOpacity: number; bindings: Record<string, string> };
+const unit = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
+export function parseSettings(raw: string | null, actions: string[]): Settings | null {
+  if (!raw || raw.length > 5000) return null;
+  try {
+    const s = JSON.parse(raw);
+    if (!s || !['ar', 'en', 'fr'].includes(s.lang) || !unit(s.music) || !unit(s.sfx) || !unit(s.touchOpacity) || ![s.motion, s.large, s.challenge, s.shake].every(b => typeof b === 'boolean')) return null;
+    if (!['small', 'medium', 'large'].includes(s.touchSize) || !s.bindings || typeof s.bindings !== 'object') return null;
+    const codes = actions.map(a => s.bindings[a]);
+    if (codes.some(c => typeof c !== 'string' || !/^[A-Za-z0-9]{1,24}$/.test(c)) || new Set(codes).size !== codes.length) return null;
+    return { ...s, bindings: Object.fromEntries(actions.map(a => [a, s.bindings[a]])) };
+  } catch { return null; }
+}
+export function loadSettings(storage: Storage, actions: string[]) { try { return parseSettings(storage.getItem(SETTINGS_KEY), actions); } catch { return null; } }
+export function writeSettings(storage: Storage, s: Settings) { try { storage.setItem(SETTINGS_KEY, JSON.stringify(s)); return true; } catch { return false; } }
