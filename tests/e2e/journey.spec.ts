@@ -36,6 +36,30 @@ async function walk(page: import('@playwright/test').Page, key: string, ms: numb
 const puzzles = (page: import('@playwright/test').Page) => page.locator('.hud span', { hasText: 'Puzzles' }).locator('b');
 const sheepCount = (page: import('@playwright/test').Page) => page.locator('.hud span', { hasText: 'Sheep rescued' }).locator('b');
 
+test('cairn deduction rejects the sum-only choice and saves its reward once', async ({ page }) => {
+  await continueFrom(page, fixture(0, 'cedar', { ...room(2), killed: ['boar-2980-436'] }));
+  await walk(page, 'ArrowRight', 850); await page.keyboard.press('KeyE');
+  await expect(page.getByTestId('puzzle-panel')).toBeVisible();
+  await expect(page.getByTestId('puzzle-value')).toHaveCount(0);
+  for (const i of [2, 3, 4]) await page.getByTestId(`cairn-${i}`).click();
+  await page.getByTestId('confirm-puzzle').click();
+  await expect(page.getByRole('alert')).toContainText('does not meet both rules');
+  for (const i of [2, 3, 4]) await page.getByTestId(`cairn-${i}`).click();
+  for (let i = 0; i < 3; i++) await page.getByTestId('cairn-hint').click();
+  await expect(page.getByTestId('cairn-hints').locator('li')).toHaveCount(3);
+  await expect(page.getByTestId('puzzle-panel')).toBeVisible();
+  for (const i of [5, 1, 3]) await page.getByTestId(`cairn-${i}`).press('Enter');
+  await expect(page.getByTestId('cairn-status')).toContainText('3 / 3');
+  await page.getByTestId('confirm-puzzle').click();
+  await expect(page.locator('.coins-stat b')).toHaveText('5');
+  await page.reload(); await page.getByTestId('continue').click();
+  await expect(page.locator('.coins-stat b')).toHaveText('5');
+  await walk(page, 'ArrowRight', 850); await page.keyboard.press('KeyE');
+  await expect(page.getByTestId('playing-screen')).toBeVisible();
+  await expect(page.getByTestId('puzzle-panel')).toHaveCount(0);
+  await expect(page.locator('.coins-stat b')).toHaveText('5');
+});
+
 test('the illustrated prologue has four beats in the selected language only', async ({ page }) => {
   await page.goto('/'); await page.getByRole('button', { name: 'Français', exact: true }).click(); await page.getByTestId('new-game').click();
   await expect(page.getByTestId('intro-screen')).toContainText('Avant la tempête');
