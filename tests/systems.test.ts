@@ -159,8 +159,8 @@ test('every objective, hint and message key has Arabic, English and French text'
   for (const k of keys) for (const lang of ['ar', 'en', 'fr'] as const) { const v = text(lang, k); assert.notEqual(v, k, `${lang}:${k}`); assert.ok(v.length > 1); }
   for (const k of keys) assert.ok(/[؀-ۿ]/.test(text('ar', k)) || /^[A-Z]/.test(text('ar', k)), `Arabic text for ${k}`);
 });
-test('no main puzzle needs alphabet knowledge: panels show counts and weights only', async () => {
+test('no main puzzle needs alphabet knowledge: optional panels use cairns and weights', async () => {
   const { PUZZLES } = await import('../src/game/content');
-  for (const p of Object.values(PUZZLES)) { assert.ok(['akomas-count', 'equation'].includes(p.kind)); assert.ok(!/[ⴰ-⵿]/.test(JSON.stringify(p)), 'no Tifinagh in a puzzle'); }
+  for (const p of Object.values(PUZZLES)) { assert.ok(['cairn-balance', 'equation'].includes(p.kind)); assert.ok(!/[ⴰ-⵿]/.test(JSON.stringify(p)), 'no Tifinagh in a puzzle'); }
   for (const f of WORLDS) for (const l of f().levers) if (l.puzzleId !== undefined) assert.equal(l.optional, true, `${l.id} is optional`);
 });

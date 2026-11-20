@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { digits, puzzleCopy, text, type Language } from './i18n';
 import { rebind, type Action, type Bindings } from './input';
 import type { LogicPuzzle } from './content';
+import { cairnsBalanced } from './cairns';
 
 export type TouchSize = 'small' | 'medium' | 'large';
 type SettingsProps = {
@@ -40,16 +41,32 @@ export function HintPanel({ lang, hints, tier, onReveal }: { lang: Language; hin
 }
 
 export function PuzzlePanel({ puzzle, lang, onSolve, onBack }: { puzzle: LogicPuzzle; lang: Language; onSolve: () => void; onBack: () => void }) {
-  const [value, setValue] = useState(0), [wrong, setWrong] = useState(false), [hint, showHint] = useState(false), [marked, mark] = useState<number[]>([]);
+  const [value, setValue] = useState(0), [wrong, setWrong] = useState(false), [hint, showHint] = useState(false), [marked, mark] = useState<number[]>([]), [tier, setTier] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null); useEffect(() => { heading.current?.focus(); }, []);
   const t = (k: string) => text(lang, k), copy = puzzleCopy(puzzle.id, lang, puzzle);
-  const piles = puzzle.piles ?? [], count = puzzle.kind === 'akomas-count', weights = puzzle.kind === 'equation';
-  const target = count ? piles.length : puzzle.id === 3 ? 3 : 4;
+  const piles = puzzle.piles ?? [], cairns = puzzle.kind === 'cairn-balance', weights = puzzle.kind === 'equation';
+  const target = puzzle.id === 3 ? 3 : 4;
+  const ordered = [...marked].sort((a, b) => a - b);
+  const correct = cairns ? cairnsBalanced(piles, marked) : value === target;
   return <section className="panel puzzle-panel" data-testid="puzzle-panel" aria-labelledby="puzzle-title"><p className="eyebrow">AMKSA · {t('puzzle')}</p><h1 ref={heading} tabIndex={-1} id="puzzle-title">{copy.prompt}</h1>
-    <aside className="clue"><strong>{t('clue')}</strong><p>{copy.clue ?? t('count')}</p></aside>
-    {count && <div className="piles" data-testid="stone-piles">{piles.map((n, i) => <button key={i} aria-label={`${t('count')} ${i + 1}`} aria-pressed={marked.includes(i)} onClick={() => mark(v => v.includes(i) ? v.filter(a => a !== i) : [...v, i])}><svg viewBox="0 0 90 90" aria-hidden="true">{Array.from({ length: n }, (_, j) => <ellipse key={j} cx={45 + (j % 2 ? 4 : -3)} cy={76 - j * 15} rx={31 - j * 5} ry="9" fill={marked.includes(i) ? '#e9b85f' : '#a7b3ac'} stroke="#24352e" strokeWidth="2" />)}</svg>{marked.includes(i) ? '✓' : '○'}</button>)}</div>}
+    <aside className="clue"><strong>{t('clue')}</strong><p>{copy.clue}</p></aside>
+    {cairns && <>
+      <p id="cairn-instructions" className="cairn-help">{t('cairnHelp')}</p>
+      <div className="cairn-row" dir="ltr" role="group" aria-label={t('cairnRow')} aria-describedby="cairn-instructions" data-testid="stone-piles">{piles.map((n, i) => {
+        const selected = marked.includes(i), role = ordered.indexOf(i);
+        const position = ordered.length === 3 && selected ? t(['left', 'cairnMiddle', 'right'][role]) : '';
+        return <button key={i} data-testid={`cairn-${i + 1}`} aria-label={`${t('cairn')} ${i + 1}: ${n} ${t('cairnStones')}${position ? `, ${position}` : ''}`} aria-pressed={selected} onClick={() => { mark(v => v.includes(i) ? v.filter(a => a !== i) : [...v, i]); setWrong(false); }}>
+          <span className="cairn-index">{i + 1}</span><svg viewBox="0 0 90 90" aria-hidden="true">{Array.from({ length: n }, (_, j) => <ellipse key={j} cx={45 + (j % 2 ? 4 : -3)} cy={76 - j * 15} rx={31 - j * 5} ry="9" fill={selected ? '#e9b85f' : '#a7b3ac'} stroke="#24352e" strokeWidth="2" />)}</svg>
+          <span aria-hidden="true">{selected ? '✓' : '○'}</span><small dir={lang === 'ar' ? 'rtl' : 'ltr'}>{position || `${n} ${t('cairnStones')}`}</small>
+        </button>;
+      })}</div>
+      <p className="cairn-status" role="status" data-testid="cairn-status">{t('cairnSelected')}: <bdi dir="ltr">{marked.length} / 3</bdi></p>
+    </>}
     {weights && <div className="balance" data-testid="weight-balance"><div className="beam" style={{ transform: `rotate(${Math.max(-14, Math.min(14, (value - target) * 4))}deg)` }} /><div className="balance-pans"><span>{puzzle.id === 3 ? '⚖ × 3' : '⚖ × ' + value}</span><span>{puzzle.id === 3 ? '● ● ● ● ● ● ● ● ●' : '● ● ● ● ● ● ● ●'}</span></div></div>}
-    <div className="number-control"><button aria-label="−" onClick={() => { setValue(v => Math.max(0, v - 1)); setWrong(false); }}>−</button><output data-testid="puzzle-value">{digits(String(value), lang)}</output><button aria-label="+" onClick={() => { setValue(v => Math.min(36, v + 1)); setWrong(false); }}>+</button></div>
-    {wrong && <p role="alert" className="error">{t('wrong')}</p>}{hint && <p>{copy.hint}</p>}<div className="actions"><button onClick={onBack}>{t('back')}</button><button onClick={() => showHint(true)}>{t('hint')}</button><button className="primary" data-testid="confirm-puzzle" onClick={() => value === target ? onSolve() : setWrong(true)}>{t('confirm')}</button></div>
+    {weights && <div className="number-control"><button aria-label="−" onClick={() => { setValue(v => Math.max(0, v - 1)); setWrong(false); }}>−</button><output data-testid="puzzle-value">{digits(String(value), lang)}</output><button aria-label="+" onClick={() => { setValue(v => Math.min(36, v + 1)); setWrong(false); }}>+</button></div>}
+    {wrong && <p role="alert" className="error">{t(cairns ? 'cairnWrong' : 'wrong')}</p>}
+    {cairns && tier > 0 && <ol className="cairn-hints" data-testid="cairn-hints">{['cairnH1', 'cairnH2', 'cairnH3'].slice(0, tier).map(k => <li key={k}>{t(k)}</li>)}</ol>}
+    {!cairns && hint && <p>{copy.hint}</p>}
+    <div className="actions"><button onClick={onBack}>{t('back')}</button>{cairns ? tier < 3 && <button data-testid="cairn-hint" onClick={() => setTier(v => Math.min(3, v + 1))}>{t('hint')} <bdi dir="ltr">{tier + 1} / 3</bdi></button> : <button onClick={() => showHint(true)}>{t('hint')}</button>}<button className="primary" data-testid="confirm-puzzle" onClick={() => correct ? onSolve() : setWrong(true)}>{t('confirm')}</button></div>
   </section>;
 }

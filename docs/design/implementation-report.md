@@ -46,7 +46,7 @@ Design rule derived from the measurement: a mandatory gate is a wall the shepher
 - Zone 2, **rope bridge**: a raised drawbridge seals the far terrace. A rope runs from the bridge to a peg in the far cliff face. A quick throw from the ledge hits the peg. The bridge lowers with a creak and a short camera focus. Sheep 1 waits on the terrace.
 - Zone 4, **crate step and throwing slot**: a target hangs behind a log gate. A rock slab above the gate leaves a slot. The high ledge facing the slot is out of jumping reach. The shepherd pushes the crate under the ledge, climbs, and throws through the slot. Low cedar boughs stop a bypass from the pillars.
 - Zone 6: wolves are announced by tracks and a howl. Perch rocks let the shepherd wait above them. A rock between the shepherd and a wolf hides the shepherd.
-- Optional: a stone-pile counting panel gives five coins.
+- Optional: a cairn deduction panel gives five coins. Select three fixed piles that satisfy both the sum and left-right rules.
 
 ## Phase C — Shared systems
 
@@ -96,7 +96,7 @@ Design rule derived from the measurement: a mandatory gate is a wall the shepher
 ## Decisions taken where the prompt and the code disagreed
 
 1. Eight main sheep, two per world. The third snow sheep was removed so story, counters, save and ending agree.
-2. Tifinagh puzzles were removed. Mechanism panels remain only as optional coin puzzles with drawn counts and weights.
+2. Tifinagh puzzles were removed. Mechanism panels remain only as optional coin puzzles with cairn relationships and weights.
 3. Light-and-shadow puzzles were not built. The world lists in sections 22–25 do not ask for them. They remain a candidate for a future room.
 4. A rescued sheep walks toward the fold and fades instead of following the shepherd through the level. Section 27 allows this for a first version. The ending shows the flock arriving together.
 5. The lynx stays in the code but appears in no world, pending the ecology review in section 30.

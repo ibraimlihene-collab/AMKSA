@@ -1,6 +1,6 @@
 import type { WD, Plat, Enemy, EType, Mood, Room } from './types';
 const GY = 470;
-export type PuzzleKind = 'akomas-count' | 'equation';
+export type PuzzleKind = 'cairn-balance' | 'equation';
 export interface LogicPuzzle {
   id: number;
   kind: PuzzleKind;
@@ -12,10 +12,10 @@ export interface LogicPuzzle {
 // Optional mechanism panels. Every clue is drawn in the panel. No alphabet or language knowledge is required.
 export const PUZZLES: Record<number, LogicPuzzle> = {
   2: {
-    id: 2, kind: 'akomas-count',
-    prompt: 'عدّ أكوام الحجارة المرسومة. كم كومة؟', piles: [3, 2, 4, 3, 2],
-    choices: ['٣', '٤', '٥', '٦'],
-    answer: 2, hint: 'كل كومة عبارة عن مجموعة أحجار مرصوصة',
+    id: 2, kind: 'cairn-balance',
+    prompt: 'اختر ثلاث أكوام تعيد التوازن.', piles: [3, 2, 5, 3, 2],
+    choices: [], answer: -1,
+    clue: 'من بين الأكوام المختارة: حجارة الوسط تساوي مجموع حجارة الطرفين، وحجارة اليسار أكثر من اليمين.',
   },
   3: {
     id: 3, kind: 'equation',
